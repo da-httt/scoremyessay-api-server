@@ -6,7 +6,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
-from schemas import Account, AccountInDB, Order, OrderCreate, AccountLogin, Token, TokenData, User, SignUp, Job, Gender, UserAccount
+import schemas
 from sqlalchemy.orm import Session
 from db import SessionLocal, engine 
 import models
@@ -99,14 +99,14 @@ async def get_current_account(token: str = Depends(oauth2_scheme), db: Session =
         raise credentials_exception
     
     print("see role: " + account.role.role_name)
-    schema_account = Account(
+    schema_account = schemas.Account(
         account_id=account.account_id,
         email=account.email,
         role_id=account.role_id,
         disabled=account.disabled)
     return schema_account 
 
-async def create_account(db: Session, new_account: SignUp):
+async def create_account(db: Session, new_account: schemas.SignUp):
     
     hashed_password = get_password_hash(new_account.password)
     db_account = models.Account(email=new_account.email, 
@@ -140,14 +140,14 @@ async def create_new_order(db: Session, order: OrderCreate, db_account: models.A
     """
 
 #Authentication Route 
-async def get_current_active_account(account: Account = Depends(get_current_account)):
+async def get_current_active_account(account: schemas.Account = Depends(get_current_account)):
     print("Getting info..")
     if account.disabled:
         raise HTTPException(status_code=400, detail="Inactive user")
     print(account)
     return account
 
-@app.post("/token", response_model=Token, tags=['Authentication'])
+@app.post("/token", response_model=schemas.Token, tags=['Authentication'])
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     account = authenticate_account(db, form_data.username, form_data.password)
     if not account:
@@ -162,8 +162,8 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
-@app.post("/login", response_model=Token, tags=['Authentication'])
-async def login_for_access_token(account_login: AccountLogin, db: Session = Depends(get_db)):
+@app.post("/login", response_model=schemas.Token, tags=['Authentication'])
+async def login_for_access_token(account_login: schemas.AccountLogin, db: Session = Depends(get_db)):
     account = authenticate_account(db, account_login.username, account_login.password)
     if not account:
         raise HTTPException(
@@ -177,15 +177,15 @@ async def login_for_access_token(account_login: AccountLogin, db: Session = Depe
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
-@app.post("/signup", response_model=Account, tags=['Authentication'])
-async def signup_for_new_account(new_account: SignUp,
+@app.post("/signup", response_model=schemas.Account, tags=['Authentication'])
+async def signup_for_new_account(new_account: schemas.SignUp,
                                 db: Session = Depends(get_db)):
     
     if get_account(db, new_account.email):
         raise HTTPException(status_code=400, detail="Email already registered")
     
     db_account, _ = await create_account(db, new_account)
-    return Account(account_id=db_account.account_id,
+    return schemas.Account(account_id=db_account.account_id,
                    email = db_account.email,
                    disabled = db_account.disabled,
                    role_id=db_account.role_id)
@@ -193,74 +193,95 @@ async def signup_for_new_account(new_account: SignUp,
 
 
 
-@app.get("/accounts/me", response_model=Account, tags=['Authentication'])
-async def read_account_me(current_account: Account = Depends(get_current_active_account)):
+@app.get("/accounts/me", response_model=schemas.Account, tags=['Authentication'])
+async def read_account_me(current_account: schemas.Account = Depends(get_current_active_account)):
     return current_account
 
 
-@app.get("/jobs", response_model= List[Job], tags=['Authentication'])
+@app.get("/jobs", response_model= schemas.JobResponse, tags=['User'])
 async def read_job_list(db: Session=Depends(get_db)):
     db_job_list = db.query(models.Job).all()
     job_list = []
     for db_job in db_job_list:
-        job_list.append(Job(job_id=db_job.job_id, job_name=db_job.job_name))
+        job_list.append(schemas.Job(job_id=db_job.job_id, job_name=db_job.job_name))
     
-    return job_list
+    job_response = schemas.JobResponse(
+        status = "success",
+        totalCount = len(job_list),
+        data = job_list
+    )
+    return job_response
 
-@app.get("/genders", response_model= List[Gender], tags=['Authentication'])
+@app.get("/genders", response_model= schemas.GenderResponse, tags=['User'])
 async def read_gender_list(db: Session=Depends(get_db)):
     db_gender_list = db.query(models.Gender).all()
     gender_list = []
     for db_gender in db_gender_list:
-        gender_list.append(Gender(gender_id=db_gender.gender_id, gender_name=db_gender.gender_name))
+        gender_list.append(schemas.Gender(gender_id=db_gender.gender_id, gender_name=db_gender.gender_name))
     
-    return gender_list
+    gender_response = schemas.GenderResponse(
+        status = "success",
+        totalCount = len(gender_list),
+        data = gender_list
+    )
+    return gender_response
 
 
 # User route 
 
 @app.get("/users/me", 
-         response_model=User, 
+         response_model=schemas.UserAccount, 
          description = "Get the user information of current account",
          tags = ["User"])
-async def read_user_information(current_account: Account = Depends(get_current_account), db: Session = Depends(get_db)):
+async def read_user_information(current_account: schemas.Account = Depends(get_current_account), db: Session = Depends(get_db)):
     db_user = db.query(models.User).filter(models.User.account_id == current_account.account_id).first()
-    return User(
-        email = current_account.email,
-        name =  db_user.name,
-        date_of_birth =  db_user.date_of_birth,
-        address = db_user.address,
-        gender = db_user.gender_id,
-        job = db_user.job_id,
-        phone_number = db_user.phone_number 
-    )
+    return schemas.UserAccount(
+            account_id = db_user.account.account_id,
+            role_id = db_user.account.role_id,
+            email = db_user.account.email,
+            disabled = db_user.account.disabled,
+            info = schemas.User(user_id = db_user.user_id,
+                        name =  db_user.name,
+                        date_of_birth =  db_user.date_of_birth,
+                        address = db_user.address,
+                        gender_id = db_user.gender_id,
+                        job_id = db_user.job_id,
+                        phone_number = db_user.phone_number)
+            
+        )
     
 @app.get("/users",
-         response_model = List[UserAccount],
+         response_model = schemas.UserResponse,
          description = "Get the all user information in database",
          tags = ["User"])
-async def read_all_users(current_account: Account = Depends(get_current_account), db: Session = Depends(get_db)):
-    if current_account.role_id != 3:
+async def read_all_users(current_account: schemas.Account = Depends(get_current_account), db: Session = Depends(get_db)):
+    if current_account.role_id != 0:
         raise HTTPException(status_code=403, detail="Only Admin can access this api")
     
     db_user_list = db.query(models.User).all()
     user_list = []
     for db_user in db_user_list:
-        user_list.append(UserAccount(
-            user_id = db_user.user_id,
+        user_list.append(schemas.UserAccount(
             account_id = db_user.account.account_id,
             role_id = db_user.account.role_id,
             email = db_user.account.email,
-            name =  db_user.name,
-            date_of_birth =  db_user.date_of_birth,
-            address = db_user.address,
-            gender_id = db_user.gender_id,
-            job_id = db_user.job_id,
-            phone_number = db_user.phone_number,
-            disabled = db_user.account.disabled
+            disabled = db_user.account.disabled,
+            info = schemas.User(user_id = db_user.user_id,
+                        name =  db_user.name,
+                        date_of_birth =  db_user.date_of_birth,
+                        address = db_user.address,
+                        gender_id = db_user.gender_id,
+                        job_id = db_user.job_id,
+                        phone_number = db_user.phone_number)
             
         ))
-    return user_list
+    user_response = schemas.UserResponse(
+        status = "success", 
+        totalCount = len(user_list),
+        perPage = len(user_list),
+        data = user_list
+    )
+    return user_response 
         
 
 @app.put("/users/{user_id}", tags=["User"])
@@ -279,9 +300,9 @@ async def get_all_orders():
     pass
 
 @app.get("/orders/students/{user_id}",
-         response_model=List[Order],
+         response_model=List[schemas.Order],
         tags = ["Order"])
-async def get_all_orders_by_studentid(user_id:int, current_account: Account = Depends(get_current_account), db: Session = Depends(get_db)):
+async def get_all_orders_by_studentid(user_id:int, current_account: schemas.Account = Depends(get_current_account), db: Session = Depends(get_db)):
     db_order_list = db.query(models.Order).filter(models.Order.student_id == user_id)
     order_list = []
     for db_order in db_order_list:
@@ -291,9 +312,9 @@ async def get_all_orders_by_studentid(user_id:int, current_account: Account = De
     return order_list 
 
 @app.get("/orders/teachers/{user_id}",
-         response_model=List[Order],
+         response_model=List[schemas.Order],
         tags = ["Order"])
-async def get_all_orders_by_teacherid(user_id:int, current_account: Account = Depends(get_current_account), db: Session = Depends(get_db)):
+async def get_all_orders_by_teacherid(user_id:int, current_account: schemas.Account = Depends(get_current_account), db: Session = Depends(get_db)):
     db_order_list = db.query(models.Order).filter(models.Order.teacher_id == user_id)
     order_list = []
     for db_order in db_order_list:
