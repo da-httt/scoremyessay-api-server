@@ -302,6 +302,40 @@ async def delete_user():
     pass 
 
 #Order Management 
+
+@app.get("/status", tags=["Order"])
+async def get_order_status(db: Session = Depends(get_db)):
+    db_status_list = db.query(models.Status).all()
+    status_list = []
+    for db_status in db_status_list:
+        status_list.append(schemas.Status(status_id=db_status.status_id, status_name=db_status.status_name))
+    
+    status_response = schemas.StatusListResponse(
+        status = "success",
+        totalCount = len(status_list),
+        data = status_list
+    )
+    return status_response 
+
+@app.get("/options", tags=["Order"])
+async def get_order_option(db: Session = Depends(get_db)):
+    db_option_list = db.query(models.Option).all()
+    option_list = []
+    for db_option in db_option_list:
+        option_list.append(schemas.Option(option_id=db_option.option_id,
+                                          option_type=db_option.option_type,
+                                          option_name=db_option.option_name,
+                                          option_price=db_option.option_price))
+    
+    option_response = schemas.OptionListResponse(
+        status="success",
+        totalCount = len(option_list),
+        data = option_list
+    )
+    return option_response
+    
+    
+
 @app.get("/orders", 
          response_model=schemas.OrderListResponse,
          tags=["Order"])
@@ -511,7 +545,3 @@ async def assign_teacher_order(order_id:int,
     return update_order_response
     
     
-@app.put("/oders/{order_id}", tags=["Order"])
-async def update_order(current_account: schemas.Account = Depends(get_current_account)):
-    pass
-

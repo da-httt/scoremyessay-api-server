@@ -81,6 +81,33 @@ class UserResponse(BaseModel):
         
 
 #schema class for order management 
+class Status(BaseModel):
+    status_id: int
+    status_name: str
+
+class StatusListResponse(BaseModel):
+    status: str
+    totalCount: int 
+    pageCount: Optional[int] = 1
+    currentPage: Optional[int] = 1
+    perPage: Optional[int] = 20 
+    data: List[Status]
+    
+class Option(BaseModel):
+    option_id: int
+    option_type: int
+    option_name: str
+    option_price: float
+
+class OptionListResponse(BaseModel):
+    status: str
+    totalCount: int 
+    pageCount: Optional[int] = 1
+    currentPage: Optional[int] = 1
+    perPage: Optional[int] = 20 
+    data: List[Option]
+    
+    
 
 class EssayInDB(BaseModel):
     title: str 
