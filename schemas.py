@@ -1,7 +1,7 @@
 from pydantic import EmailStr
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import datetime, timedelta, date
+from datetime import datetime, date,  timedelta, date
 
 
 #schema class for authorization 
@@ -18,6 +18,7 @@ class TokenData(BaseModel):
 
 class Account(BaseModel):
     account_id: int
+    user_id: int
     email: str
     role_id: int
     disabled: Optional[bool] = False 
@@ -29,11 +30,11 @@ class SignUp(BaseModel):
     email: str
     password: str
     name: str
-    address: Optional[str] = None
+    address: Optional[str] = "Da Nang"
     date_of_birth: date
-    gender_id: Optional[int] = None 
-    job_id: Optional[int] = None
-    phone_number: Optional[str] = None
+    gender_id: Optional[int] = 1 
+    job_id: Optional[int] = 1
+    phone_number: Optional[str] = "123456789"
 
 #schema class for user management
 class User(BaseModel):
@@ -54,7 +55,11 @@ class JobResponse(BaseModel):
     totalCount: int
     data: List[Job]
 
-class UserAccount(Account):
+class UserAccount(BaseModel):
+    account_id: int
+    email: str
+    role_id: int
+    disabled: Optional[bool] = False 
     info: User 
         
 class Gender(BaseModel):
@@ -76,30 +81,43 @@ class UserResponse(BaseModel):
         
 
 #schema class for order management 
-class Order(BaseModel):
-    order_id: int 
-    essay_id: int
-    student_id: int 
-    teacher_id: int 
-    sent_date: datetime 
-    updated_date: datetime 
-    updated_by: int 
-    total_price: float 
-    status_id: int 
 
-class Essay(BaseModel):
-    essay_id: int
+class EssayInDB(BaseModel):
     title: str 
-    content: str 
-    level_id: int
+    content: str  
     type_id: int 
     
-    
-class OrderCreate(BaseModel):
-    essay_id: int
-    student_id: int 
-    total_price: float 
+class OrderInDB(BaseModel):
+    essay: EssayInDB
+    option_list: List[int]  
+
+class EssayResponse(BaseModel):
+    essay_id: int 
+    title: str 
+    content: str
+    type_id: int 
+
+class OrderResponse(BaseModel):
     status_id: int 
+    order_id: int
+    student_id: int 
+    teacher_id: Optional[int] = None 
+    sent_date: str
+    updated_date: str 
+    updated_by: int 
+    essay: EssayResponse
+    option_list: List[int]
+    total_price: float 
+
+
+
+class OrderListResponse(BaseModel):
+    status: str
+    totalCount: int 
+    pageCount: Optional[int] = 1
+    currentPage: Optional[int] = 1
+    perPage: Optional[int] = 20 
+    data: List[OrderResponse]
     
     
     

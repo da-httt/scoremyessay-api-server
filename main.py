@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, date, timedelta
 from typing import Optional, List
 
 from fastapi import Depends, FastAPI, HTTPException, status
@@ -90,7 +90,7 @@ async def get_current_account(token: str = Depends(oauth2_scheme), db: Session =
         email: str = payload.get("sub") 
         if email is None:
             raise credentials_exception
-        token_data = TokenData(email=email)
+        token_data = schemas.TokenData(email=email)
     except JWTError:
         raise credentials_exception
     
@@ -100,6 +100,7 @@ async def get_current_account(token: str = Depends(oauth2_scheme), db: Session =
     
     print("see role: " + account.role.role_name)
     schema_account = schemas.Account(
+        user_id = account.user[0].user_id,
         account_id=account.account_id,
         email=account.email,
         role_id=account.role_id,
@@ -184,8 +185,16 @@ async def signup_for_new_account(new_account: schemas.SignUp,
     if get_account(db, new_account.email):
         raise HTTPException(status_code=400, detail="Email already registered")
     
+    if not db.query(models.Role).filter(models.Job.job_id == new_account.job_id).first():
+        raise HTTPException(status_code=400, detail="role_id not found")
+    
+    if not db.query(models.Gender).filter(models.Gender.gender_id == new_account.gender_id).first():
+        raise HTTPException(status_code=400, detail="gender_id not found")
+    
+    
     db_account, _ = await create_account(db, new_account)
     return schemas.Account(account_id=db_account.account_id,
+                   user_id = db_account.user[0].user_id,
                    email = db_account.email,
                    disabled = db_account.disabled,
                    role_id=db_account.role_id)
@@ -292,53 +301,217 @@ async def update_user():
 async def delete_user():
     pass 
 
-
-#Order 
-
-@app.get("/orders", tags = ["Order"])
-async def get_all_orders():
-    pass
-
-@app.get("/orders/students/{user_id}",
-         response_model=List[schemas.Order],
-        tags = ["Order"])
-async def get_all_orders_by_studentid(user_id:int, current_account: schemas.Account = Depends(get_current_account), db: Session = Depends(get_db)):
-    db_order_list = db.query(models.Order).filter(models.Order.student_id == user_id)
-    order_list = []
-    for db_order in db_order_list:
-        order_list.append(Order(
-            **db_order.__dict__
-        ))
-    return order_list 
-
-@app.get("/orders/teachers/{user_id}",
-         response_model=List[schemas.Order],
-        tags = ["Order"])
-async def get_all_orders_by_teacherid(user_id:int, current_account: schemas.Account = Depends(get_current_account), db: Session = Depends(get_db)):
-    db_order_list = db.query(models.Order).filter(models.Order.teacher_id == user_id)
-    order_list = []
-    for db_order in db_order_list:
-        order_list.append(Order(
-            **db_order.__dict__
-        ))
-    return order_list 
+#Order Management 
+@app.get("/orders", 
+         response_model=schemas.OrderListResponse,
+         tags=["Order"])
+async def get_all_orders(current_account: schemas.Account = Depends(get_current_account),
+                         db: Session = Depends(get_db)):
+    if current_account.role_id == 0:
+        db_orders = db.query(models.Order).all()
+    else:
+        if current_account.role_id == 1:
+            db_orders = db.query(models.Order).filter(models.Order.student_id == current_account.user_id).all()
+        else:
+            db_orders = db.query(models.Order).filter(models.Order.teacher_id == current_account.user_id).all()
     
+    
+    order_list = []
+    for db_order in db_orders:
+        db_essay = db_order.essay
+        if db_order.status_id == 0:
+            continue 
+        order_list.append(schemas.OrderResponse(
+            status_id = db_order.status_id,
+            order_id = db_order.order_id,
+            student_id = db_order.student_id,
+            teacher_id = db_order.teacher_id,
+            sent_date = db_order.sent_date,
+            updated_date = db_order.updated_date,
+            updated_by = db_order.updated_by,
+            essay = schemas.EssayResponse(
+                essay_id = db_essay.essay_id,
+                title = db_essay.title,
+                content = db_essay.content,
+                type_id = db_essay.type_id
+            ),
+            option_list = [int(item) for item in db_order.option_list.split("-")],
+            total_price = db_order.total_price
+        ))
+    totalCount = len(order_list)
 
-@app.get("/orders/{order_id}", tags=["Order"])
-async def get_order_by_id():
-    pass 
+    order_list_response = schemas.OrderListResponse(
+        status = "success",
+        totalCount = totalCount,
+        data = order_list 
+        
+    )
+    return order_list_response
+        
 
-"""@app.post("/orders", tags = ["Order"])
-async def create_order(new_order: OrderCreate, current_account: Account = Depends(get_current_account), db: Session = Depends(get_db)):
-    if current_account.role_id == 2:
-        raise HTTPException(status_code=403)
-    order = create_new_order(db, new_order)
-"""
-@app.put("/orders/{order_id}", tags=["Order"])
-async def update_order():
-    pass 
+@app.get("/orders/saved", 
+         response_model = schemas.OrderListResponse,
+         tags=["Order"])
+async def get_saved_orders(current_account: schemas.Account = Depends(get_current_account),
+                           db: Session = Depends(get_db)):
+    if current_account.role_id == 0:
+        db_orders = db.query(models.Order).all()
+    else:
+        if current_account.role_id == 1:
+            db_orders = db.query(models.Order).filter(models.Order.student_id == current_account.user_id).all()
+        else:
+            raise  HTTPException(status_code=403)
+    
+    
+    order_list = []
+    for db_order in db_orders:
+        db_essay = db_order.essay
+        if db_order.status_id != 0:
+            continue 
+        order_list.append(schemas.OrderResponse(
+            status_id = db_order.status_id,
+            order_id = db_order.order_id,
+            student_id = db_order.student_id,
+            teacher_id = db_order.teacher_id,
+            sent_date = db_order.sent_date,
+            updated_date = db_order.updated_date,
+            updated_by = db_order.updated_by,
+            essay = schemas.EssayResponse(
+                essay_id = db_essay.essay_id,
+                title = db_essay.title,
+                content = db_essay.content,
+                type_id = db_essay.type_id
+            ),
+            option_list = [int(item) for item in db_order.option_list.split("-")],
+            total_price = db_order.total_price
+        ))
+    totalCount = len(order_list)
 
-@app.delete("/orders/{order_id}", tags=["Order"])
-async def delete_order():
-    pass 
+    order_list_response = schemas.OrderListResponse(
+        status = "success",
+        totalCount = totalCount,
+        data = order_list 
+    )
+    return order_list_response
+         
+
+
+@app.post("/orders", 
+          response_model=schemas.OrderResponse,
+          tags=["Order"])
+async def create_order(new_order: schemas.OrderInDB,
+                       status_id: int, 
+                       current_account: schemas.Account = Depends(get_current_account),
+                       db: Session = Depends(get_db)):
+    if not current_account.role_id == 1:
+        raise  HTTPException(status_code=403, detail="Permission Not Found")
+    
+    sent_date = date.today().strftime("%Y/%m/%d")
+    updated_date = sent_date
+    updated_by = current_account.user_id
+    student_id = current_account.user_id 
+    
+    db_type = db.query(models.EssayType).filter(models.EssayType.type_id == new_order.essay.type_id).first()
+    db_optionlist = db.query(models.Option).all()
+    
+    if not db_type:
+        raise HTTPException(status_code=400, detail="Type ID not found") 
+    
+    db_essay = models.Essay(
+            title=new_order.essay.title,
+            content=new_order.essay.content,
+            type_id=new_order.essay.type_id,
+            
+    )
+    db.add(db_essay)
+    db.commit()
+    db.refresh(db_essay)
+    
+    total_price = 0
+    for option_id in new_order.option_list:
+        total_price += db_optionlist[0].option_price 
+    total_price += db_type.type_price 
+        
+    db_order = models.Order(
+        student_id = current_account.user_id,
+        status_id = status_id,
+        sent_date = sent_date,
+        updated_date = sent_date,
+        updated_by = current_account.user_id,
+        essay_id = db_essay.essay_id,
+        option_list = '-'.join(str(item) for item in new_order.option_list),
+        total_price = total_price
+    )
+    db.add(db_order)
+    db.commit()
+    db.refresh(db_order)
+    
+    create_order_response = schemas.OrderResponse(
+        status_id = db_order.status_id,
+        order_id = db_order.order_id,
+        student_id = db_order.student_id,
+        teacher_id = db_order.teacher_id,
+        sent_date = sent_date,
+        updated_date = sent_date,
+        updated_by = db_order.student_id,
+        essay = schemas.EssayResponse(
+            essay_id = db_essay.essay_id,
+            title = db_essay.title,
+            content = db_essay.content,
+            type_id = db_essay.type_id
+        ),
+        option_list = [int(item) for item in db_order.option_list.split("-")],
+        total_price = db_order.total_price
+    )
+    return create_order_response
+    
+@app.put("/orders/assign/{order_id}", 
+         response_model=schemas.OrderResponse,
+         tags=["Order"])
+async def assign_teacher_order(order_id:int,
+                                current_account: schemas.Account = Depends(get_current_account),
+                               db: Session = Depends(get_db),
+                               teacher_id: Optional[int] = None):
+    
+    if current_account.role_id == 1:
+        raise HTTPException(status_code=403, detail="Student accounts are not allowed!")
+    if current_account.role_id == 0:
+        if not teacher_id:
+            raise HTTPException(status_code=400, detail="Admin must provide a teacher_id!")
+    else:
+        teacher_id = current_account.user_id
+    
+    db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
+    if not db_order:
+        raise HTTPException(status_code=404, detail="order_id not found")
+    if db_order.status_id != 1:
+        raise HTTPException(status_code=405, detail="The order is not available or was taken")
+    db_order.teacher_id = teacher_id
+    db_order.status_id = 2
+    db.commit()
+    db.refresh(db_order)
+    db_essay = db_order.essay 
+    update_order_response = schemas.OrderResponse(
+        status_id = db_order.status_id,
+        order_id = db_order.order_id,
+        student_id = db_order.student_id,
+        teacher_id = db_order.teacher_id,
+        sent_date = db_order.sent_date,
+        updated_date = db_order.updated_date,
+        updated_by = db_order.updated_by,
+        essay = schemas.EssayResponse(
+            essay_id = db_essay.essay_id,
+            title = db_essay.title,
+            content = db_essay.content,
+            type_id = db_essay.type_id
+        ),
+        option_list = [int(item) for item in db_order.option_list.split("-")],
+        total_price = db_order.total_price
+    )
+    return update_order_response
+    
+    
+@app.put("/oders/{order_id}", tags=["Order"])
+async def update_order(current_account: schemas.Account = Depends(get_current_account)):
+    pass
 
