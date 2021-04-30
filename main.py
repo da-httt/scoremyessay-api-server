@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from db import SessionLocal, engine 
 import models
 from fastapi.middleware.cors import CORSMiddleware
-
+from modules.nlp import paragraph
 models.Base.metadata.create_all(bind=engine)
 
 #Define secret key and algorithm
@@ -913,3 +913,142 @@ async def update_result(order_id: int,
         result_response.extra_results = extra_results
     
     return result_response
+
+
+
+@app.get("/essay_comments/{order_id}",
+         response_model= schemas.EssayCommentResponse,
+         tags=["Result"])
+async def get_essay_comment(order_id:int,
+                            current_account: schemas.Account = Depends(get_current_account),
+                            db: Session = Depends(get_db)):
+    db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
+    #If the order not in Database, return error 
+    if not db_order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    #check if the order is paid 
+    if db_order.status_id in [0,1]:
+        raise HTTPException(status_code=405, detail="Order has been paid yet!")
+    
+    #Check permission 
+    if current_account.role_id != 0 and current_account.user_id not in [db_order.student_id, db_order.teacher_id]:
+        raise HTTPException(status_code=403)
+        
+    db_essay = db_order.essay 
+    
+    db_essay_comment_list = db.query(models.EssayComment).filter(models.EssayComment.essay_id == db_essay.essay_id).order_by(models.EssayComment.sentence_index).all()
+    essay = db_essay.content.replace("\n"," ")
+    sentences = paragraph.paragraph_to_sentences(essay)
+    print(sentences)
+
+    if len(db_essay_comment_list) == 0:
+        for index, sentence in enumerate(sentences):
+            db_essay_comment = models.EssayComment(
+                essay_id = db_essay.essay_id,
+                sentence_index = index,
+            )
+            db.add(db_essay_comment)
+            db.commit()
+            db.refresh(db_essay_comment)
+            
+    db_essay_comment_list = db.query(models.EssayComment).filter(models.EssayComment.essay_id == db_essay.essay_id).order_by(models.EssayComment.sentence_index).all()
+     
+    essay_comments = []
+    for index, db_essay_comment in enumerate(db_essay_comment_list):
+        essay_comments.append(schemas.EssayComment(
+            sentence_index = db_essay_comment.sentence_index,
+            sentence = sentences[index],
+            comment = db_essay_comment.comment
+        ))
+    
+    
+    
+    essay_comment_response = schemas.EssayCommentResponse(
+        essay_id = db_essay.essay_id,
+        title = db_essay.title,
+        content = db_essay.content,
+        type_id = db_essay.type_id,
+        essay_comments = essay_comments
+    )
+    
+    return essay_comment_response
+
+    
+                            
+
+
+@app.put("/essay_comments/{order_id}",
+         response_model= schemas.EssayCommentResponse,
+         tags=["Result"])
+async def update_essay_comment(order_id:int,
+                            new_essay_comment: List[schemas.EssayCommentInDB],
+                            current_account: schemas.Account = Depends(get_current_account),
+                            db: Session = Depends(get_db)):
+    db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
+    #If the order not in Database, return error 
+    if not db_order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    #check if the order is paid 
+    if db_order.status_id in [0,1]:
+        raise HTTPException(status_code=405, detail="Order has been paid yet!")
+    
+    #Check permission 
+    if current_account.role_id != 0 and current_account.user_id not in [db_order.student_id, db_order.teacher_id]:
+        raise HTTPException(status_code=403)
+        
+    db_essay = db_order.essay 
+    
+    db_essay_comment_list = db.query(models.EssayComment).filter(models.EssayComment.essay_id == db_essay.essay_id).order_by(models.EssayComment.sentence_index).all()
+    essay = db_essay.content.replace("\n"," ")
+    sentences = paragraph.paragraph_to_sentences(essay)
+    print(sentences)
+
+    if len(db_essay_comment_list) == 0:
+        for index, sentence in enumerate(sentences):
+            db_essay_comment = models.EssayComment(
+                essay_id = db_essay.essay_id,
+                sentence_index = index,
+            )
+            db.add(db_essay_comment)
+            db.commit()
+            db.refresh(db_essay_comment)
+    
+    db_essay_comment_list = db.query(models.EssayComment).filter(models.EssayComment.essay_id == db_essay.essay_id).order_by(models.EssayComment.sentence_index).all()
+    
+    
+    for index, essay_comment in enumerate(new_essay_comment):
+        sentence_index = essay_comment.sentence_index 
+        if sentence_index > len(db_essay_comment_list):
+            raise HTTPException(status_code=400, detail="Sentence index out of range")
+        db_essay_comment = db_essay_comment_list[sentence_index]
+        db_essay_comment.comment = essay_comment.comment
+        db.commit()
+        db.refresh(db_essay_comment)
+        
+    essay_comments = []
+    for index, db_essay_comment in enumerate(db_essay_comment_list):
+        essay_comments.append(schemas.EssayComment(
+            sentence_index = db_essay_comment.sentence_index,
+            sentence = sentences[index],
+            comment = db_essay_comment.comment
+        ))
+    
+    essay_comment_response = schemas.EssayCommentResponse(
+        essay_id = db_essay.essay_id,
+        title = db_essay.title,
+        content = db_essay.content,
+        type_id = db_essay.type_id,
+        essay_comments = essay_comments
+    )
+    
+    return essay_comment_response
+
+    
+                            
+    
+
+    
+
+    

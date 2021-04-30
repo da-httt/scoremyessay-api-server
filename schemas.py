@@ -223,5 +223,19 @@ class ResultInDB(BaseModel):
     criteria_results: Optional[List[CriteriaResultInDB]] = None 
     extra_results: Optional[List[ExtraResultInDB]] = None 
     
+#Essay Comment 
+
+class EssayComment(BaseModel):
+    sentence_index: int 
+    sentence: str 
+    comment: Optional[str] = None 
+    
+class EssayCommentResponse(EssayResponse):
+    essay_comments: List[EssayComment]
+    
+    
+class EssayCommentInDB(BaseModel):
+    sentence_index: int 
+    comment: Optional[str] = None 
     
     
