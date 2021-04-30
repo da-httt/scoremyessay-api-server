@@ -78,6 +78,8 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt 
 
 
+    
+
 async def get_current_account(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -319,7 +321,7 @@ async def get_order_status(db: Session = Depends(get_db)):
 
 @app.get("/options", tags=["Order"])
 async def get_order_option(db: Session = Depends(get_db)):
-    db_option_list = db.query(models.Option).all()
+    db_option_list = db.query(models.Option).order_by(models.Option.option_id).all()
     option_list = []
     for db_option in db_option_list:
         option_list.append(schemas.Option(option_id=db_option.option_id,
@@ -333,8 +335,42 @@ async def get_order_option(db: Session = Depends(get_db)):
         data = option_list
     )
     return option_response
+
+@app.get("/levels", 
+         response_model = schemas.LevelListResponse
+         ,tags=["Order"])
+async def get_essay_level(db: Session = Depends(get_db)):
+    db_level_list = db.query(models.EssayLevel).all()
+    level_list = []
+    for db_level in db_level_list:
+        level_list.append(schemas.Level(level_id=db_level.level_id,
+                                          level_name=db_level.level_name))
     
+    level_response = schemas.LevelListResponse(
+        status="success",
+        totalCount = len(level_list),
+        data = level_list
+    )
+    return level_response
+
+@app.get("/types", 
+         response_model = schemas.TypeListResponse,
+         tags=["Order"])
+async def get_essay_type(db: Session = Depends(get_db)):
+    db_type_list = db.query(models.EssayType).all()
+    type_list = []
+    for db_type in db_type_list:
+        type_list.append(schemas.Type(type_id=db_type.type_id,
+                                       level_id = db_type.level_id,
+                                          type_name=db_type.type_name,
+                                          type_price=db_type.type_price))
     
+    type_response = schemas.TypeListResponse(
+        status="success",
+        totalCount = len(type_list),
+        data = type_list
+    )
+    return type_response
 
 @app.get("/orders", 
          response_model=schemas.OrderListResponse,
@@ -381,7 +417,7 @@ async def get_all_orders(current_account: schemas.Account = Depends(get_current_
         
     )
     return order_list_response
-        
+
 
 @app.get("/orders/saved", 
          response_model = schemas.OrderListResponse,
@@ -428,8 +464,39 @@ async def get_saved_orders(current_account: schemas.Account = Depends(get_curren
     )
     return order_list_response
          
-
-
+@app.get("/orders/{order_id}",
+         response_model=schemas.OrderResponse,
+         tags = ["Order"])
+async def get_order_by_id(order_id:int,
+                          current_account: schemas.Account = Depends(get_current_account),
+                          db: Session = Depends(get_db)):
+    role_id = current_account.role_id
+    user_id = current_account.user_id
+    db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
+    if not db_order:
+        raise HTTPException(status_code = 404)
+    if role_id in [1,2] and user_id not in [db_order.student_id, db_order.teacher_id]:
+        raise HTTPException(status_code = 403)
+    db_essay = db_order.essay
+    return schemas.OrderResponse(
+            status_id = db_order.status_id,
+            order_id = db_order.order_id,
+            student_id = db_order.student_id,
+            teacher_id = db_order.teacher_id,
+            sent_date = db_order.sent_date,
+            updated_date = db_order.updated_date,
+            updated_by = db_order.updated_by,
+            essay = schemas.EssayResponse(
+                essay_id = db_essay.essay_id,
+                title = db_essay.title,
+                content = db_essay.content,
+                type_id = db_essay.type_id
+            ),
+            option_list = [int(item) for item in db_order.option_list.split("-")],
+            total_price = db_order.total_price
+        )
+    
+        
 @app.post("/orders", 
           response_model=schemas.OrderResponse,
           tags=["Order"])
@@ -498,7 +565,74 @@ async def create_order(new_order: schemas.OrderInDB,
         total_price = db_order.total_price
     )
     return create_order_response
+
+@app.put("/oders/saved/{order_id}",
+         response_model=schemas.OrderResponse,
+         tags=["Order"])
+async def update_order(order_id: int,
+                       updated_order: schemas.OrderUpdate,
+                       current_account: schemas.Account = Depends(get_current_account),
+                       db: Session = Depends(get_db)):
     
+    db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first() 
+    db_type = db.query(models.EssayType).filter(models.EssayType.type_id == updated_order.essay.type_id).first()
+    db_optionlist = db.query(models.Option).all()
+    
+    if not db_order:
+        raise HTTPException(status_code=404)
+    
+    if current_account.role_id == 1 and current_account.user_id != db_order.student_id:
+        raise HTTPException(status_code = 403)
+    
+    if current_account.role_id == 1 and db_order.status_id != 0:
+        raise HTTPException(status_code = 403, detail="You can not change the order!")
+
+    db_status_list = db.query(models.Status).all()
+    if updated_order.status_id not in [db_status.status_id for db_status in db_status_list]:
+        raise HTTPException(status_code = 400)
+    
+    updated_date = date.today().strftime("%Y/%m/%d")
+    
+    db_order.status_id = updated_order.status_id 
+    db_order.updated_by = current_account.user_id 
+    db_order.updated_date = updated_date
+    db_order.essay.title = updated_order.essay.title 
+    db_order.essay.content = updated_order.essay.content
+    db_order.essay.type_id = updated_order.essay.type_id
+    db_order.option_list = '-'.join(str(item) for item in updated_order.option_list)
+    
+    total_price = 0
+    for option_id in updated_order.option_list:
+        total_price += db_optionlist[0].option_price 
+    total_price += db_type.type_price 
+    
+    db_order.total_price = total_price
+    
+    db.commit()
+    db.refresh(db_order)
+    db_essay = db_order.essay 
+    update_order_response = schemas.OrderResponse(
+        status_id = db_order.status_id,
+        order_id = db_order.order_id,
+        student_id = db_order.student_id,
+        teacher_id = db_order.teacher_id,
+        sent_date = db_order.sent_date,
+        updated_date = db_order.updated_date,
+        updated_by = db_order.updated_by,
+        essay = schemas.EssayResponse(
+            essay_id = db_essay.essay_id,
+            title = db_essay.title,
+            content = db_essay.content,
+            type_id = db_essay.type_id
+        ),
+        option_list = [int(item) for item in db_order.option_list.split("-")],
+        total_price = db_order.total_price
+    )
+    return update_order_response
+
+
+
+
 @app.put("/orders/assign/{order_id}", 
          response_model=schemas.OrderResponse,
          tags=["Order"])
@@ -545,3 +679,237 @@ async def assign_teacher_order(order_id:int,
     return update_order_response
     
     
+
+
+@app.get("/results/{order_id}",
+         response_model = schemas.ResultResponse,
+         tags=["Result"])
+async def get_order_result(order_id: int,
+                            current_account: schemas.Account = Depends(get_current_account),
+                            db: Session = Depends(get_db)):
+    db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
+    
+    isCriteria = False 
+    isExtra = False 
+    
+    
+    #If the order not in Database, return error 
+    if not db_order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    #check if the order is paid 
+    if db_order.status_id in [0,1]:
+        raise HTTPException(status_code=405, detail="Order has been paid yet!")
+    
+    #Check permission 
+    if current_account.role_id != 0 and current_account.user_id not in [db_order.student_id, db_order.teacher_id]:
+        raise HTTPException(status_code=403)
+    
+    db_result = db.query(models.Result).filter(models.Result.order_id == order_id).first()
+    
+    db_option_list = db.query(models.Option).order_by(models.Option.option_id).all()
+    option_list = [int(item) for item in db_order.option_list.split("-") if db_option_list[int(item)].option_type == 0]
+    option_list.sort()
+    extra_option_list = [option_id for option_id in option_list if option_id not in [0,1,2]]
+
+    if 3 in option_list:
+        isCriteria = True 
+    if len(extra_option_list) > 0:
+        isExtra = True 
+
+    db_criteria_list = db.query(models.Criteria).all()
+    if not db_result:
+        db_result = models.Result(
+            order_id = order_id,
+            isCriteria = isCriteria,
+            isExtra = isExtra
+        )
+        db.add(db_result)
+        db.commit()
+        db.refresh(db_result)
+        if isExtra:
+            for extra_option_id in extra_option_list:
+                db_extra = models.ExtraResult(
+                    result_id = db_result.result_id,
+                    option_id = extra_option_id
+                )
+                db.add(db_extra)
+                db.commit()
+                db.refresh(db_extra)
+                
+        if isCriteria:
+            for db_criteria in db_criteria_list:
+                db_result_criteria = models.ResultCriteria(
+                    result_id = db_result.result_id, 
+                    criteria_id = db_criteria.criteria_id
+                )
+                db.add(db_result_criteria)
+                db.commit()
+                db.refresh(db_result_criteria)
+    
+    
+    result_response = schemas.ResultResponse(
+        result_id = db_result.result_id,
+        isCriteria = isCriteria,
+        isExtra = isExtra,
+        grade = db_result.grade,
+        grade_comment = db_result.grade_comment,
+        review = db_result.review,
+        comment = db_result.comment, 
+    )
+    
+    criteria_results = [] 
+    extra_results = [] 
+    
+    if isCriteria:
+        for db_criteria_result in db.query(models.ResultCriteria).filter(models.ResultCriteria.result_id == db_result.result_id).all():
+            criteria_results.append(schemas.CriteriaResponse(
+                result_id = db_result.result_id,
+                criteria_id = db_criteria_result.criteria_id,
+                criteria_name = db_criteria_result.criteria.criteria_name,
+                criteria_comment = db_criteria_result.criteria_comment,
+                criteria_score = db_criteria_result.criteria_score
+            ))
+        print(criteria_results)
+        result_response.criteria_results = criteria_results
+    
+    if isExtra:
+        for db_extra in db.query(models.ExtraResult).filter(models.ExtraResult.result_id == db_result.result_id).all():
+            extra_results.append(schemas.ExtraResponse(
+                result_id = db_result.result_id,
+                option_id = db_extra.option_id,
+                option_name = db_extra.option.option_name,
+                content = db_extra.content
+            ))
+        print(extra_results)
+        result_response.extra_results = extra_results
+    
+    
+    return result_response
+
+
+
+@app.put("/results/{order_id}",
+         response_model=schemas.ResultResponse,
+         tags=["Result"])
+async def update_result(order_id: int,
+                        new_result: schemas.ResultInDB,
+                        current_account: schemas.Account = Depends(get_current_account),
+                        db: Session = Depends(get_db)
+                        ):
+    
+    db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
+    
+    isCriteria = False 
+    isExtra = False 
+    
+    
+    #If the order not in Database, return error 
+    if not db_order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    #check if the order is paid 
+    if db_order.status_id in [0,1]:
+        raise HTTPException(status_code=405, detail="Order has been paid yet!")
+    
+    #Check permission 
+    if current_account.role_id != 0 and current_account.user_id not in [db_order.student_id, db_order.teacher_id]:
+        raise HTTPException(status_code=403)
+    
+    db_result = db.query(models.Result).filter(models.Result.order_id == order_id).first()
+    
+    db_option_list = db.query(models.Option).order_by(models.Option.option_id).all()
+    option_list = [int(item) for item in db_order.option_list.split("-") if db_option_list[int(item)].option_type == 0]
+    option_list.sort()
+    extra_option_list = [option_id for option_id in option_list if option_id not in [0,1,2]]
+
+    if 3 in option_list:
+        isCriteria = True 
+    if len(extra_option_list) > 0:
+        isExtra = True 
+    db_criteria_list = db.query(models.Criteria).all()
+    if not db_result:
+        db_result = models.Result(
+            order_id = order_id,
+            isCriteria = isCriteria,
+            isExtra = isExtra
+        )
+        db.add(db_result)
+        db.commit()
+        db.refresh(db_result)
+        if isExtra:
+            for extra_option_id in extra_option_list:
+                db_extra = models.ExtraResult(
+                    result_id = db_result.result_id,
+                    option_id = extra_option_id
+                )
+                db.add(db_extra)
+                db.commit()
+                db.refresh(db_extra)
+                
+        if isCriteria:
+            for db_criteria in db_criteria_list:
+                db_result_criteria = models.ResultCriteria(
+                    result_id = db_result.result_id, 
+                    criteria_id = db_criteria.criteria_id
+                )
+                db.add(db_result_criteria)
+                db.commit()
+                db.refresh(db_result_criteria)
+                
+    db_criteria_result_list = db.query(models.ResultCriteria).filter(models.ResultCriteria.result_id == db_result.result_id).all()
+    if len(db_criteria_result_list) != len(new_result.criteria_results):
+        raise HTTPException(status_code=400, detail="Not enough criteria input")
+    db_extra_result_list = db.query(models.ExtraResult).filter(models.ExtraResult.result_id == db_result.result_id).all()
+    if len(db_extra_result_list) != len(new_result.extra_results):
+        raise HTTPException(status_code=400, detail="Not enough extra input")
+
+    db_result.grade = new_result.grade 
+    db_result.grade_comment = new_result.grade_comment
+    db_result.review = new_result.review 
+    db_result.comment = new_result.comment
+    db.commit()
+    db.refresh(db_result)
+    
+    result_response = schemas.ResultResponse(
+        result_id = db_result.result_id,
+        isCriteria = isCriteria,
+        isExtra = isExtra,
+        grade = db_result.grade,
+        grade_comment = db_result.grade_comment,
+        review = db_result.review,
+        comment = db_result.comment, 
+    )
+    
+    criteria_results = [] 
+    extra_results = [] 
+    
+    if isCriteria:
+        for index, db_criteria_result in enumerate(db_criteria_result_list):
+            db_criteria_result.criteria_comment = new_result.criteria_results[index].criteria_comment
+            db_criteria_result.criteria_score = new_result.criteria_results[index].criteria_score
+            db.commit()
+            db.refresh(db_criteria_result)
+            criteria_results.append(schemas.CriteriaResponse(
+                result_id = db_result.result_id,
+                criteria_id = db_criteria_result.criteria_id,
+                criteria_name = db_criteria_result.criteria.criteria_name,
+                criteria_comment = db_criteria_result.criteria_comment,
+                criteria_score = db_criteria_result.criteria_score
+            ))
+        result_response.criteria_results = criteria_results
+    
+    if isExtra:
+        for index, db_extra in enumerate(db_extra_result_list):
+            db_extra.content = new_result.extra_results[index].content
+            db.commit()
+            db.refresh(db_extra)
+            extra_results.append(schemas.ExtraResponse(
+                result_id = db_result.result_id,
+                option_id = db_extra.option_id,
+                option_name = db_extra.option.option_name,
+                content = db_extra.content
+            ))
+        result_response.extra_results = extra_results
+    
+    return result_response

@@ -118,6 +118,10 @@ class OrderInDB(BaseModel):
     essay: EssayInDB
     option_list: List[int]  
 
+class OrderUpdate(OrderInDB):
+    status_id: int 
+    
+
 class EssayResponse(BaseModel):
     essay_id: int 
     title: str 
@@ -145,6 +149,79 @@ class OrderListResponse(BaseModel):
     currentPage: Optional[int] = 1
     perPage: Optional[int] = 20 
     data: List[OrderResponse]
+    
+class Level(BaseModel):
+    level_id: int
+    level_name: str
+
+class LevelListResponse(BaseModel):
+    status: str
+    totalCount: int 
+    pageCount: Optional[int] = 1
+    currentPage: Optional[int] = 1
+    perPage: Optional[int] = 20 
+    data: List[Level]
+    
+class Type(BaseModel):
+    type_id: int
+    level_id: int
+    type_name: str
+    type_price: float
+
+class TypeListResponse(BaseModel):
+    status: str
+    totalCount: int 
+    pageCount: Optional[int] = 1
+    currentPage: Optional[int] = 1
+    perPage: Optional[int] = 20 
+    data: List[Type]
+
+class CriteriaResponse(BaseModel):
+    result_id: int
+    criteria_id: int 
+    criteria_name: str 
+    criteria_comment: Optional[str] = None
+    criteria_score: Optional[str] = None  
+    
+class ExtraResponse(BaseModel):
+    result_id: int
+    option_id: int 
+    option_name: str
+    content: Optional[str] = None
+    
+class ResultResponse(BaseModel):
+    result_id: int 
+    isCriteria: bool
+    isExtra: bool
+    grade: Optional[float] = None 
+    grade_comment: Optional[str] = None  
+    review: Optional[str] = None 
+    comment: Optional[str] = None  
+    criteria_results: Optional[List[CriteriaResponse]] = None 
+    extra_results: Optional[List[ExtraResponse]] = None 
+
+
+    
+class CriteriaListResponse(BaseModel):
+    criteria_id: int 
+    criteria_name: str 
+
+class CriteriaResultInDB(BaseModel):
+    criteria_id: int 
+    criteria_comment: Optional[str] = None 
+    criteria_score: Optional[float] = None 
+
+class ExtraResultInDB(BaseModel):
+    option_id: int 
+    content: Optional[str] = None 
+    
+class ResultInDB(BaseModel):
+    grade: Optional[float] = None 
+    grade_comment: Optional[str] = None  
+    review: Optional[str] = None  
+    comment: Optional[str] = None  
+    criteria_results: Optional[List[CriteriaResultInDB]] = None 
+    extra_results: Optional[List[ExtraResultInDB]] = None 
     
     
     

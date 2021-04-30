@@ -88,7 +88,18 @@ class Essay(Base):
     type_id = Column(Integer, ForeignKey("types.type_id"))
     
     order = relationship("Order", back_populates="essay")
-
+    essay_comment = relationship("EssayComment", back_populates="essay")
+    
+    
+class EssayComment(Base):
+    __tablename__ = "essay_comments"
+    
+    comment_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    essay_id = Column(Integer, ForeignKey("essays.essay_id"))
+    sentence_index = Column(Integer)
+    comment = Column(String)
+    
+    essay = relationship("Essay", back_populates="essay_comment")
 #Order class 
 class Option(Base):
     __tablename__ = "options"
@@ -97,6 +108,8 @@ class Option(Base):
     option_type = Column(Integer)
     option_name = Column(String)
     option_price = Column(Float)
+    
+    extra_result = relationship("ExtraResult", back_populates="option")
 
 class Status(Base):
     __tablename__ = "status"
@@ -120,8 +133,72 @@ class Order(Base):
     essay_id = Column(Integer, ForeignKey("essays.essay_id"))
     total_price = Column(Float)
     option_list = Column(String)
+    
     student = relationship("User", foreign_keys=[student_id])
     teacher = relationship("User", foreign_keys=[teacher_id])
     status = relationship("Status", back_populates="order")
     essay = relationship("Essay", back_populates="order")
+    rating = relationship("Rating", back_populates="order")
 
+class Rating(Base):
+    __tablename__ = "rating "
+    
+    rating_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    order_id = Column(Integer, ForeignKey("orders.order_id"))
+    stars = Column(Integer)
+    comment = Column(String)
+    
+    order = relationship("Order", back_populates="rating")
+    
+    
+#Result class 
+
+
+class Result(Base):
+    __tablename__ = "results"
+    
+    result_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    order_id = Column(Integer, ForeignKey("orders.order_id"))
+    grade = Column(Float)
+    grade_comment = Column(String)
+    review = Column(String)
+    comment = Column(String)
+    isCriteria = Column(Boolean)
+    isExtra = Column(Boolean)
+    
+    order = relationship("Order")
+    result_criteria = relationship("ResultCriteria", back_populates="result")
+    extra_result = relationship("ExtraResult", back_populates="result")
+
+ 
+class Criteria(Base):
+    __tablename__ = "criterias"
+    
+    criteria_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    criteria_name = Column(String)
+    
+    result_criteria = relationship("ResultCriteria", back_populates="criteria")
+    
+class ResultCriteria(Base):
+    __tablename__ = "result_criterias"
+    
+    resultcriteria_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    result_id = Column(Integer, ForeignKey("results.result_id"))
+    criteria_id = Column(Integer, ForeignKey("criterias.criteria_id"))
+    criteria_comment = Column(String)
+    criteria_score = Column(Float)
+    
+    result = relationship("Result", back_populates="result_criteria")
+    criteria = relationship("Criteria", back_populates="result_criteria")
+    
+
+class ExtraResult(Base):
+    __tablename__ = "extra_results"
+    
+    extraresult_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    result_id = Column(Integer, ForeignKey("results.result_id"))
+    option_id = Column(Integer, ForeignKey("options.option_id"))
+    content = Column(String)
+    
+    result = relationship("Result", back_populates="extra_result")
+    option = relationship("Option", back_populates="extra_result")
