@@ -1,7 +1,7 @@
 from datetime import datetime, date, timedelta
 from typing import Optional, List
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, status, Query
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -11,7 +11,10 @@ from sqlalchemy.orm import Session
 from db import SessionLocal, engine 
 import models
 from fastapi.middleware.cors import CORSMiddleware
-from modules.nlp import paragraph
+from modules import paragraph
+from modules.topic_classification import inference 
+
+
 models.Base.metadata.create_all(bind=engine)
 
 #Define secret key and algorithm
@@ -19,11 +22,18 @@ SECRET_KEY = "b8f93afd6ae4f16427e475cb090a23671e6e9f00dc5fbd603c1469355f575854"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 1000
 
+#Load model
+def load_model():
+    predictor = inference.Predictor()
+    return predictor 
+
 
 #Initialize app
 app = FastAPI()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 origins = ["*"]
+predictor = load_model()
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -32,6 +42,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+
 
 def get_db():
     db = SessionLocal()
@@ -1047,7 +1060,10 @@ async def update_essay_comment(order_id:int,
 
     
                             
-    
+@app.post("/predict_topic",
+          tags=["NLP"])
+async def predict_essay_topic(paragraph: str):
+    return predictor.predict(paragraph)
 
     
 

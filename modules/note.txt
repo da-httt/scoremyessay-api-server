@@ -1,0 +1,4 @@
+You must install these below liraries
+
+sudo apt-add-repository ppa:python-pylinkgrammar/getsome
+sudo apt-get install liblink-grammar-dev

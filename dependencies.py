@@ -1,12 +1,31 @@
 from typing import Optional, List
-from fastapi import FastAPI, Query, Depends, Path, Body, Header, Form, File, UploadFile, HTTPException
+from fastapi import FastAPI, Query, Depends, Path, Body, Header, Form, File, UploadFile, HTTPException, status
 from pydantic import BaseModel, Field 
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from db import SessionLocal, engine 
+from passlib.context import CryptContext
+import schemas 
+import models
+from jose import JWTError, jwt
+#Define secret key and algorithm
+SECRET_KEY = "b8f93afd6ae4f16427e475cb090a23671e6e9f00dc5fbd603c1469355f575854"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 1000
+
+def get_db():
+    db = SessionLocal()
+    try: 
+        yield db
+    finally:
+        db.close()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
+
+#Define CryptContext
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 #Define authenticate function
 def verify_password(plain_password, hashed_password):
@@ -43,6 +62,8 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt 
 
 
+    
+
 async def get_current_account(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -65,33 +86,17 @@ async def get_current_account(token: str = Depends(oauth2_scheme), db: Session =
     
     print("see role: " + account.role.role_name)
     schema_account = schemas.Account(
+        user_id = account.user[0].user_id,
         account_id=account.account_id,
         email=account.email,
         role_id=account.role_id,
         disabled=account.disabled)
     return schema_account 
 
-async def create_account(db: Session, new_account: schemas.SignUp):
-    
-    hashed_password = get_password_hash(new_account.password)
-    db_account = models.Account(email=new_account.email, 
-                                hashed_password=hashed_password, 
-                                disabled=False, 
-                                role_id=1)
-    db.add(db_account)
-    db.commit()
-    db.refresh(db_account)
-    
-    db_user = models.User(account_id=db_account.account_id,
-                          name = new_account.name,
-                          address = new_account.address,
-                          gender_id = new_account.gender_id,
-                          job_id = new_account.job_id,
-                          phone_number = new_account.phone_number,
-                          date_of_birth = new_account.date_of_birth
-                         )
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
-    
-    return db_account, db_user
+#Authentication Route 
+async def get_current_active_account(account: schemas.Account = Depends(get_current_account)):
+    print("Getting info..")
+    if account.disabled:
+        raise HTTPException(status_code=400, detail="Inactive user")
+    print(account)
+    return account

@@ -1,1 +1,5 @@
 __pycache__/*
+modules/topic_classification/bert_model/*
+modules/topic_classification/weights/*
+modules/__pycache__/*
+routers/__pycache__/*
