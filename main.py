@@ -518,7 +518,7 @@ async def create_order(new_order: schemas.OrderInDB,
                        current_account: schemas.Account = Depends(get_current_account),
                        db: Session = Depends(get_db)):
     if not current_account.role_id == 1:
-        raise  HTTPException(status_code=403, detail="Permission Not Found")
+        raise  HTTPException(status_code=403, detail="Permission Not Found with role id =" + str(current_account.role_id) )
     
     sent_date = date.today().strftime("%Y/%m/%d")
     updated_date = sent_date

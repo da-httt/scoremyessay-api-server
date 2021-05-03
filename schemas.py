@@ -190,6 +190,7 @@ class ExtraResponse(BaseModel):
     content: Optional[str] = None
     
 class ResultResponse(BaseModel):
+    order_status_id: int 
     result_id: int 
     isCriteria: bool
     isExtra: bool
@@ -238,4 +239,17 @@ class EssayCommentInDB(BaseModel):
     sentence_index: int 
     comment: Optional[str] = None 
     
+  
+
+class WordError(BaseModel):
+    index: int
+    word: str
+    suggested_word: str 
+      
+class EssayInfoResponse(BaseModel):
+    essay_info_id: int
+    essay_id: int
+    predicted_topic: str
+    num_errors: int
+    spelling_errors: List[WordError]
     

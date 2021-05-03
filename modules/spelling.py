@@ -15,9 +15,13 @@ def spellCheck(text):
     wordList = re.findall(r"\w+", text)
     
     #checking misspelt words 
-    for word in wordList:
+    for index, word in enumerate(wordList):
         if d.check(word) == False:
-            misspelt.append({word: d.suggest(word)[0]})
+            misspelt.append(
+                {"index":index, 
+                 "word": word,
+                 "suggested_word": d.suggest(word)[0]}
+            )
             numIncorrect += 1
             
     

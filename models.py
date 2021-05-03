@@ -89,6 +89,7 @@ class Essay(Base):
     
     order = relationship("Order", back_populates="essay")
     essay_comment = relationship("EssayComment", back_populates="essay")
+    essay_info = relationship("EssayInfo", back_populates="essay")
     
     
 class EssayComment(Base):
@@ -202,3 +203,19 @@ class ExtraResult(Base):
     
     result = relationship("Result", back_populates="extra_result")
     option = relationship("Option", back_populates="extra_result")
+    
+
+#Class NLP
+
+
+class EssayInfo(Base):
+    __tablename__ = "essay_infos"
+    
+    info_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    essay_id = Column(Integer, ForeignKey("essays.essay_id"))
+    predicted_topic = Column(String)
+    num_errors = Column(Integer)
+    spelling_errors = Column(String)
+    
+    essay = relationship("Essay", back_populates="essay_info")
+    
