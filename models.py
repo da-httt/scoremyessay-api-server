@@ -133,8 +133,7 @@ class Order(Base):
     updated_by = Column(Integer, ForeignKey("users.user_id"))
     essay_id = Column(Integer, ForeignKey("essays.essay_id"))
     total_price = Column(Float)
-    option_list = Column(String)
-    
+    option_list = Column(String)    
     student = relationship("User", foreign_keys=[student_id])
     teacher = relationship("User", foreign_keys=[teacher_id])
     status = relationship("Status", back_populates="order")
@@ -142,7 +141,7 @@ class Order(Base):
     rating = relationship("Rating", back_populates="order")
 
 class Rating(Base):
-    __tablename__ = "rating "
+    __tablename__ = "rating"
     
     rating_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     order_id = Column(Integer, ForeignKey("orders.order_id"))

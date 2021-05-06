@@ -78,6 +78,13 @@ class UserResponse(BaseModel):
     currentPage: Optional[int] = 1
     perPage: int 
     data: List[UserAccount]
+    
+class UserView(BaseModel):
+    emai: str 
+    name: str
+    phone_number: str 
+    gender_id: int 
+    
         
 
 #schema class for order management 
@@ -234,13 +241,14 @@ class EssayComment(BaseModel):
 class EssayCommentResponse(EssayResponse):
     essay_comments: List[EssayComment]
     
-    
+
 class EssayCommentInDB(BaseModel):
     sentence_index: int 
     comment: Optional[str] = None 
     
-  
-
+class ListEssayCommentInDB(BaseModel):
+    comments: List[EssayCommentInDB]
+    
 class WordError(BaseModel):
     index: int
     word: str
@@ -252,4 +260,3 @@ class EssayInfoResponse(BaseModel):
     predicted_topic: str
     num_errors: int
     spelling_errors: List[WordError]
-    

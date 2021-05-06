@@ -124,6 +124,81 @@ async def get_all_orders(current_account: schemas.Account = Depends(get_current_
     )
     return order_list_response
 
+@router.get("/orders/waiting", 
+         response_model=schemas.OrderListResponse)
+async def get_all_waiting_orders(current_account: schemas.Account = Depends(get_current_account),
+                         db: Session = Depends(get_db)):
+    
+    if current_account.role_id == 1:
+            raise HTTPException(status_code = 403)
+
+    db_orders = db.query(models.Order).order_by(models.Order.order_id).all()
+
+    
+    order_list = []
+    for db_order in db_orders:
+        db_essay = db_order.essay
+        if db_order.status_id != 0:
+            continue 
+        order_list.append(schemas.OrderResponse(
+            status_id = db_order.status_id,
+            order_id = db_order.order_id,
+            student_id = db_order.student_id,
+            teacher_id = db_order.teacher_id,
+            sent_date = db_order.sent_date,
+            updated_date = db_order.updated_date,
+            updated_by = db_order.updated_by,
+            essay = schemas.EssayResponse(
+                essay_id = db_essay.essay_id,
+                title = db_essay.title,
+                content = db_essay.content,
+                type_id = db_essay.type_id
+            ),
+            option_list = [int(item) for item in db_order.option_list.split("-")],
+            total_price = db_order.total_price
+        ))
+    totalCount = len(order_list)
+
+    order_list_response = schemas.OrderListResponse(
+        status = "success",
+        totalCount = totalCount,
+        data = order_list 
+        
+    )
+    return order_list_response
+
+@router.get("/orders/waiting/{order_id}",
+         response_model=schemas.OrderResponse)
+async def get_waiting_order_by_id(order_id:int,
+                          current_account: schemas.Account = Depends(get_current_account),
+                          db: Session = Depends(get_db)):
+
+    db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
+    if not db_order:
+        raise HTTPException(status_code = 404)
+    
+    if current_account.role_id == 1:
+            raise HTTPException(status_code = 403)
+        
+    db_essay = db_order.essay
+    return schemas.OrderResponse(
+            status_id = db_order.status_id,
+            order_id = db_order.order_id,
+            student_id = db_order.student_id,
+            teacher_id = db_order.teacher_id,
+            sent_date = db_order.sent_date,
+            updated_date = db_order.updated_date,
+            updated_by = db_order.updated_by,
+            essay = schemas.EssayResponse(
+                essay_id = db_essay.essay_id,
+                title = db_essay.title,
+                content = db_essay.content,
+                type_id = db_essay.type_id
+            ),
+            option_list = [int(item) for item in db_order.option_list.split("-")],
+            total_price = db_order.total_price
+        )
+
 
 @router.get("/orders/saved", 
          response_model = schemas.OrderListResponse)
@@ -199,7 +274,7 @@ async def get_order_by_id(order_id:int,
             option_list = [int(item) for item in db_order.option_list.split("-")],
             total_price = db_order.total_price
         )
-    
+
         
 @router.post("/orders", 
           response_model=schemas.OrderResponse)

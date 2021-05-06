@@ -96,7 +96,16 @@ async def read_all_users(current_account: schemas.Account = Depends(get_current_
     )
     return user_response 
         
-
+        
+@router.put("/users/{user_id}")
+async def get_user_by_id(user_id:int,
+                         current_account: schemas.Account = Depends(get_current_account),
+                         db: Session = Depends(get_db)):
+    db_user = db.query(models.User).filter(models.User.user_id == user_id).first()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found") 
+    
+    
 @router.put("/users/{user_id}")
 async def update_user():
     pass 

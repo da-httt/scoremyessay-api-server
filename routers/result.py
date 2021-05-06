@@ -329,10 +329,11 @@ async def get_essay_comment(order_id:int,
 @router.put("/essay_comments/{order_id}",
          response_model= schemas.EssayCommentResponse)
 async def update_essay_comment(order_id:int,
-                            new_essay_comment: List[schemas.EssayCommentInDB],
+                            list_essay_comment: schemas.ListEssayCommentInDB,
                             current_account: schemas.Account = Depends(get_current_account),
                             db: Session = Depends(get_db)):
     db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
+    new_essay_comment = list_essay_comment.comments
     #If the order not in Database, return error 
     if not db_order:
         raise HTTPException(status_code=404, detail="Order not found")
