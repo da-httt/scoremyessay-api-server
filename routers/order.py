@@ -14,7 +14,39 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-@router.get("/status")
+def get_time_left(db_order: models.Order):
+    time_left = 0
+    if db_order.status_id != 0:
+        current_time_left =  db_order.deadline - datetime.today() + timedelta(hours=1)
+        if current_time_left.days >= 0 :
+            time_left = current_time_left.days*24 + (current_time_left.seconds // 3600)
+    return time_left 
+    
+def get_order_response(db_order: models.Order):
+    db_essay = db_order.essay 
+    return schemas.OrderResponse(
+            status_id = db_order.status_id,
+            order_id = db_order.order_id,
+            student_id = db_order.student_id,
+            teacher_id = db_order.teacher_id,
+            sent_date = db_order.sent_date.strftime("%m/%d/%Y, %H:%M:%S"),
+            updated_date = db_order.updated_date.strftime("%m/%d/%Y, %H:%M:%S"),
+            updated_by = db_order.updated_by,
+            essay = schemas.EssayResponse(
+                essay_id = db_essay.essay_id,
+                title = db_essay.title,
+                content = db_essay.content,
+                type_id = db_essay.type_id
+            ),
+            option_list = [int(item) for item in db_order.option_list.split("-")],
+            total_price = db_order.total_price,
+            is_disabled = db_order.is_disabled,
+            deadline = db_order.deadline.strftime("%m/%d/%Y, %H:%M:%S"),
+            time_left = get_time_left(db_order)
+        )
+
+@router.get("/status",
+            description="Get all the status in the database")
 async def get_order_status(db: Session = Depends(get_db)):
     db_status_list = db.query(models.Status).order_by(models.Status.status_id).all()
     status_list = []
@@ -80,7 +112,13 @@ async def get_essay_type(db: Session = Depends(get_db)):
     return type_response
 
 @router.get("/orders", 
-         response_model=schemas.OrderListResponse)
+         response_model=schemas.OrderListResponse,
+         description='''
+         Get all the orders from the database.
+         Student Account: get orders with same student_id
+         Teacher Account: get orders with same teacher_id 
+         Admin: get all the orders
+         ''')
 async def get_all_orders(current_account: schemas.Account = Depends(get_current_account),
                          db: Session = Depends(get_db)):
     if current_account.role_id == 0:
@@ -94,26 +132,9 @@ async def get_all_orders(current_account: schemas.Account = Depends(get_current_
     
     order_list = []
     for db_order in db_orders:
-        db_essay = db_order.essay
-        if db_order.status_id == 0:
-            continue 
-        order_list.append(schemas.OrderResponse(
-            status_id = db_order.status_id,
-            order_id = db_order.order_id,
-            student_id = db_order.student_id,
-            teacher_id = db_order.teacher_id,
-            sent_date = db_order.sent_date,
-            updated_date = db_order.updated_date,
-            updated_by = db_order.updated_by,
-            essay = schemas.EssayResponse(
-                essay_id = db_essay.essay_id,
-                title = db_essay.title,
-                content = db_essay.content,
-                type_id = db_essay.type_id
-            ),
-            option_list = [int(item) for item in db_order.option_list.split("-")],
-            total_price = db_order.total_price
-        ))
+        if db_order.status_id == 0 or db_order.is_disabled:
+            continue
+        order_list.append(get_order_response(db_order))
     totalCount = len(order_list)
 
     order_list_response = schemas.OrderListResponse(
@@ -125,7 +146,11 @@ async def get_all_orders(current_account: schemas.Account = Depends(get_current_
     return order_list_response
 
 @router.get("/orders/waiting", 
-         response_model=schemas.OrderListResponse)
+         response_model=schemas.OrderListResponse,
+         description='''
+         For Teacher/Admin Account.
+         Get all the orders from the students if they are not taken by anyone.
+         ''')
 async def get_all_waiting_orders(current_account: schemas.Account = Depends(get_current_account),
                          db: Session = Depends(get_db)):
     
@@ -137,26 +162,9 @@ async def get_all_waiting_orders(current_account: schemas.Account = Depends(get_
     
     order_list = []
     for db_order in db_orders:
-        db_essay = db_order.essay
-        if db_order.status_id != 0:
-            continue 
-        order_list.append(schemas.OrderResponse(
-            status_id = db_order.status_id,
-            order_id = db_order.order_id,
-            student_id = db_order.student_id,
-            teacher_id = db_order.teacher_id,
-            sent_date = db_order.sent_date,
-            updated_date = db_order.updated_date,
-            updated_by = db_order.updated_by,
-            essay = schemas.EssayResponse(
-                essay_id = db_essay.essay_id,
-                title = db_essay.title,
-                content = db_essay.content,
-                type_id = db_essay.type_id
-            ),
-            option_list = [int(item) for item in db_order.option_list.split("-")],
-            total_price = db_order.total_price
-        ))
+        if db_order.status_id != 1 and db_order.is_disabled:
+            continue
+        order_list.append(get_order_response(db_order))
     totalCount = len(order_list)
 
     order_list_response = schemas.OrderListResponse(
@@ -168,40 +176,32 @@ async def get_all_waiting_orders(current_account: schemas.Account = Depends(get_
     return order_list_response
 
 @router.get("/orders/waiting/{order_id}",
-         response_model=schemas.OrderResponse)
+         response_model=schemas.OrderResponse,
+         description='''
+         For Teacher/Admin Account.
+         Receive specific information of an order from waiting list.
+         ''')
 async def get_waiting_order_by_id(order_id:int,
                           current_account: schemas.Account = Depends(get_current_account),
                           db: Session = Depends(get_db)):
 
     db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
-    if not db_order:
-        raise HTTPException(status_code = 404)
+    if not db_order or db_order.is_disabled:
+        raise HTTPException(status_code = 404, detail="Order not found")
     
     if current_account.role_id == 1:
             raise HTTPException(status_code = 403)
-        
-    db_essay = db_order.essay
-    return schemas.OrderResponse(
-            status_id = db_order.status_id,
-            order_id = db_order.order_id,
-            student_id = db_order.student_id,
-            teacher_id = db_order.teacher_id,
-            sent_date = db_order.sent_date,
-            updated_date = db_order.updated_date,
-            updated_by = db_order.updated_by,
-            essay = schemas.EssayResponse(
-                essay_id = db_essay.essay_id,
-                title = db_essay.title,
-                content = db_essay.content,
-                type_id = db_essay.type_id
-            ),
-            option_list = [int(item) for item in db_order.option_list.split("-")],
-            total_price = db_order.total_price
-        )
+
+    return get_order_response(db_order)
 
 
 @router.get("/orders/saved", 
-         response_model = schemas.OrderListResponse)
+         response_model = schemas.OrderListResponse,
+         description='''
+         For Student/Admin Account.
+         Get all saved orders created by specific students.
+         If used by Admin, get all saved order by all students.
+         ''')
 async def get_saved_orders(current_account: schemas.Account = Depends(get_current_account),
                            db: Session = Depends(get_db)):
     if current_account.role_id == 0:
@@ -215,26 +215,9 @@ async def get_saved_orders(current_account: schemas.Account = Depends(get_curren
     
     order_list = []
     for db_order in db_orders:
-        db_essay = db_order.essay
-        if db_order.status_id != 0:
+        if db_order.status_id != 0 or db_order.is_disabled:
             continue 
-        order_list.append(schemas.OrderResponse(
-            status_id = db_order.status_id,
-            order_id = db_order.order_id,
-            student_id = db_order.student_id,
-            teacher_id = db_order.teacher_id,
-            sent_date = db_order.sent_date,
-            updated_date = db_order.updated_date,
-            updated_by = db_order.updated_by,
-            essay = schemas.EssayResponse(
-                essay_id = db_essay.essay_id,
-                title = db_essay.title,
-                content = db_essay.content,
-                type_id = db_essay.type_id
-            ),
-            option_list = [int(item) for item in db_order.option_list.split("-")],
-            total_price = db_order.total_price
-        ))
+        order_list.append(get_order_response(db_order))
     totalCount = len(order_list)
 
     order_list_response = schemas.OrderListResponse(
@@ -245,47 +228,42 @@ async def get_saved_orders(current_account: schemas.Account = Depends(get_curren
     return order_list_response
          
 @router.get("/orders/{order_id}",
-         response_model=schemas.OrderResponse)
+         response_model=schemas.OrderResponse,
+         description='''
+         For Teacher/Student/Admin Account.
+         Get specific information of an order that has the same student_id or teacher_id.
+         ''')
 async def get_order_by_id(order_id:int,
                           current_account: schemas.Account = Depends(get_current_account),
                           db: Session = Depends(get_db)):
     role_id = current_account.role_id
     user_id = current_account.user_id
     db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
-    if not db_order:
+    if not db_order or db_order.is_disabled:
         raise HTTPException(status_code = 404)
     if role_id in [1,2] and user_id not in [db_order.student_id, db_order.teacher_id]:
         raise HTTPException(status_code = 403)
-    db_essay = db_order.essay
-    return schemas.OrderResponse(
-            status_id = db_order.status_id,
-            order_id = db_order.order_id,
-            student_id = db_order.student_id,
-            teacher_id = db_order.teacher_id,
-            sent_date = db_order.sent_date,
-            updated_date = db_order.updated_date,
-            updated_by = db_order.updated_by,
-            essay = schemas.EssayResponse(
-                essay_id = db_essay.essay_id,
-                title = db_essay.title,
-                content = db_essay.content,
-                type_id = db_essay.type_id
-            ),
-            option_list = [int(item) for item in db_order.option_list.split("-")],
-            total_price = db_order.total_price
-        )
+
+    return get_order_response(db_order)
 
         
 @router.post("/orders", 
-          response_model=schemas.OrderResponse)
+          response_model=schemas.OrderResponse,
+          description='''
+          For Student/Admin account.
+          Create a new order.
+          ''')
 async def create_order(new_order: schemas.OrderInDB,
                        status_id: int, 
                        current_account: schemas.Account = Depends(get_current_account),
                        db: Session = Depends(get_db)):
-    if not current_account.role_id == 1:
+    if not current_account.role_id in [0,1]:
         raise  HTTPException(status_code=403, detail="Permission Not Found with role id =" + str(current_account.role_id) )
     
-    sent_date = date.today().strftime("%Y/%m/%d")
+    if status_id not in [0,1]:
+        raise HTTPException(status_code=400, detail="Wrong status id!")
+    
+    sent_date = datetime.today()
     updated_date = sent_date
     updated_by = current_account.user_id
     student_id = current_account.user_id 
@@ -307,9 +285,18 @@ async def create_order(new_order: schemas.OrderInDB,
     db.refresh(db_essay)
     
     total_price = 0
+    deadline_hour = 0
     for option_id in new_order.option_list:
-        total_price += db_optionlist[option_id].option_price 
-    total_price += db_type.type_price 
+        total_price += db_optionlist[option_id].option_price
+        if db_optionlist[option_id].option_type == 1:
+            deadline_hour = int(db_optionlist[option_id].option_name)
+    total_price += db_type.type_price
+    
+    #Set deadline 
+    if status_id == 0:
+        deadline = None 
+    else: 
+        deadline = datetime.today() + timedelta(hours=deadline_hour)
         
     db_order = models.Order(
         student_id = current_account.user_id,
@@ -319,33 +306,23 @@ async def create_order(new_order: schemas.OrderInDB,
         updated_by = current_account.user_id,
         essay_id = db_essay.essay_id,
         option_list = '-'.join(str(item) for item in new_order.option_list),
-        total_price = total_price
+        total_price = total_price,
+        is_disabled = False,
+        deadline = deadline 
     )
     db.add(db_order)
     db.commit()
     db.refresh(db_order)
     
-    create_order_response = schemas.OrderResponse(
-        status_id = db_order.status_id,
-        order_id = db_order.order_id,
-        student_id = db_order.student_id,
-        teacher_id = db_order.teacher_id,
-        sent_date = sent_date,
-        updated_date = sent_date,
-        updated_by = db_order.student_id,
-        essay = schemas.EssayResponse(
-            essay_id = db_essay.essay_id,
-            title = db_essay.title,
-            content = db_essay.content,
-            type_id = db_essay.type_id
-        ),
-        option_list = [int(item) for item in db_order.option_list.split("-")],
-        total_price = db_order.total_price
-    )
-    return create_order_response
 
-@router.put("/oders/saved/{order_id}",
-         response_model=schemas.OrderResponse)
+    return get_order_response(db_order)
+
+@router.put("/orders/saved/{order_id}",
+         response_model=schemas.OrderResponse,
+         description='''
+         For student/admin account 
+         Get the specific information of a saved order created by student.
+         ''')
 async def update_order(order_id: int,
                        updated_order: schemas.OrderUpdate,
                        current_account: schemas.Account = Depends(get_current_account),
@@ -355,11 +332,11 @@ async def update_order(order_id: int,
     db_type = db.query(models.EssayType).filter(models.EssayType.type_id == updated_order.essay.type_id).first()
     db_optionlist = db.query(models.Option).order_by(models.Option.option_id).all()
     
-    if not db_order:
+    if not db_order or db_order.is_disabled:
         raise HTTPException(status_code=404)
     
     if current_account.role_id == 1 and current_account.user_id != db_order.student_id:
-        raise HTTPException(status_code = 403)
+        raise HTTPException(status_code = 403, detail="This order doesn't belong to you!")
     
     if current_account.role_id == 1 and db_order.status_id != 0:
         raise HTTPException(status_code = 403, detail="You can not change the order!")
@@ -368,7 +345,7 @@ async def update_order(order_id: int,
     if updated_order.status_id not in [db_status.status_id for db_status in db_status_list]:
         raise HTTPException(status_code = 400)
     
-    updated_date = date.today().strftime("%Y/%m/%d")
+    updated_date = datetime.today()
     
     db_order.status_id = updated_order.status_id 
     db_order.updated_by = current_account.user_id 
@@ -379,33 +356,34 @@ async def update_order(order_id: int,
     db_order.option_list = '-'.join(str(item) for item in updated_order.option_list)
     
     total_price = 0
+    deadline = 0
     for option_id in updated_order.option_list:
-        total_price += db_optionlist[option_id].option_price 
+        total_price += db_optionlist[option_id].option_price
+        if db_optionlist[option_id].option_type == 1:
+            deadline_hour = int(db_optionlist[option_id].option_name) 
     total_price += db_type.type_price 
-    
+    time_left = 0
+    #Set deadline 
+    if updated_order.status_id == 0:
+        deadline = None 
+    else: 
+        print("update_order")
+        deadline = datetime.today() + timedelta(hours=deadline_hour)
+        
     db_order.total_price = total_price
+    db_order.deadline = deadline
+
     
     db.commit()
     db.refresh(db_order)
     db_essay = db_order.essay 
-    update_order_response = schemas.OrderResponse(
-        status_id = db_order.status_id,
-        order_id = db_order.order_id,
-        student_id = db_order.student_id,
-        teacher_id = db_order.teacher_id,
-        sent_date = db_order.sent_date,
-        updated_date = db_order.updated_date,
-        updated_by = db_order.updated_by,
-        essay = schemas.EssayResponse(
-            essay_id = db_essay.essay_id,
-            title = db_essay.title,
-            content = db_essay.content,
-            type_id = db_essay.type_id
-        ),
-        option_list = [int(item) for item in db_order.option_list.split("-")],
-        total_price = db_order.total_price
-    )
-    return update_order_response
+    
+    if db_order.status_id != 0:
+        current_time_left =  db_order.deadline - datetime.today()
+        if current_time_left.days >= 0 :
+            time_left = current_time_left.days*24 + (current_time_left.seconds // 3600)
+    
+    return get_order_response(db_order)
 
 
 
@@ -426,32 +404,58 @@ async def assign_teacher_order(order_id:int,
         teacher_id = current_account.user_id
     
     db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
-    if not db_order:
+    if not db_order or db_order.is_disabled:
         raise HTTPException(status_code=404, detail="order_id not found")
     if db_order.status_id != 1:
         raise HTTPException(status_code=405, detail="The order is not available or was taken")
+    
+    updated_date = datetime.today()
+    db_order.updated_date = updated_date 
     db_order.teacher_id = teacher_id
     db_order.status_id = 2
     db.commit()
     db.refresh(db_order)
-    db_essay = db_order.essay 
-    update_order_response = schemas.OrderResponse(
-        status_id = db_order.status_id,
-        order_id = db_order.order_id,
-        student_id = db_order.student_id,
-        teacher_id = db_order.teacher_id,
-        sent_date = db_order.sent_date,
-        updated_date = db_order.updated_date,
-        updated_by = db_order.updated_by,
-        essay = schemas.EssayResponse(
-            essay_id = db_essay.essay_id,
-            title = db_essay.title,
-            content = db_essay.content,
-            type_id = db_essay.type_id
-        ),
-        option_list = [int(item) for item in db_order.option_list.split("-")],
-        total_price = db_order.total_price
-    )
-    return update_order_response
     
+    return get_order_response(db_order)
+    
+    
+@router.delete("/orders/saved/{order_id}")
+async def delete_saved_order(order_id: int,
+                        current_account: schemas.Account = Depends(get_current_account),
+                        db: Session = Depends(get_db)):
+    db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first() 
+
+    if not db_order or db_order.status_id != 0:
+        raise HTTPException(status_code=404)
+    
+    if current_account.user_id != db_order.student_id and current_account.role_id != 0:
+        raise HTTPException(status_code=403)
+    updated_date = datetime.today()
+    db_order.updated_date = updated_date 
+    
+    db_order.is_disabled = not db_order.is_disabled
+    db.commit()
+    db.refresh(db_order)
+
+    return get_order_response(db_order)
+
+@router.delete("/orders/{order_id}",
+               description="Disable the paid order if student decide to cancel it, or the order is not taken before the deadline")
+async def delete_order(order_id: int,
+                        current_account: schemas.Account = Depends(get_current_account),
+                        db: Session = Depends(get_db)):
+    db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first() 
+
+    if not db_order or db_order.status_id in [0,1]:
+        raise HTTPException(status_code=404)
+    
+    if current_account.user_id != db_order.student_id and current_account.role_id != 0:
+        raise HTTPException(status_code=403)
+    updated_date = datetime.today()
+    db_order.updated_date = updated_date 
+    db_order.is_disabled = not db_order.is_disabled
+    db.commit()
+    db.refresh(db_order)
+
+    return get_order_response(db_order)
     

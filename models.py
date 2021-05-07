@@ -127,13 +127,17 @@ class Order(Base):
     student_id = Column(Integer, ForeignKey("users.user_id"))
     teacher_id = Column(Integer, ForeignKey("users.user_id"))
     status_id = Column(Integer, ForeignKey("status.status_id"))
-    sent_date = Column(String)
-    updated_date = Column(String)
+    sent_date = Column(DateTime)
+    updated_date = Column(DateTime)
     option_list = Column(String)
     updated_by = Column(Integer, ForeignKey("users.user_id"))
     essay_id = Column(Integer, ForeignKey("essays.essay_id"))
     total_price = Column(Float)
-    option_list = Column(String)    
+    option_list = Column(String) 
+    deadline = Column(DateTime)  
+    is_disabled = Column(Boolean)
+    
+    
     student = relationship("User", foreign_keys=[student_id])
     teacher = relationship("User", foreign_keys=[teacher_id])
     status = relationship("Status", back_populates="order")
@@ -218,3 +222,4 @@ class EssayInfo(Base):
     
     essay = relationship("Essay", back_populates="essay_info")
     
+

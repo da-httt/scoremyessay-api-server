@@ -22,7 +22,7 @@ def load_model():
     predictor = inference.Predictor()
     return predictor 
 
-predictor = load_model()
+#predictor = load_model()
 
 def get_db():
     db = SessionLocal()

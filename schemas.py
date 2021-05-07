@@ -45,6 +45,14 @@ class User(BaseModel):
     gender_id: Optional[int] = None 
     job_id: Optional[int] = None
     phone_number: Optional[str] = None
+
+class UserInDB(BaseModel):
+    name: str
+    address: Optional[str] = "Da Nang"
+    date_of_birth: date 
+    gender_id: Optional[int] = 1 
+    job_id: Optional[int] = 1
+    phone_number: Optional[str] = "123456789"
     
 class Job(BaseModel):
     job_id: int
@@ -79,11 +87,15 @@ class UserResponse(BaseModel):
     perPage: int 
     data: List[UserAccount]
     
-class UserView(BaseModel):
-    emai: str 
+class UserInfo(BaseModel):
+    user_id: int 
+    email: str 
     name: str
     phone_number: str 
-    gender_id: int 
+    gender_id: int
+    job_id: int 
+    date_of_birth: date 
+    address: str 
     
         
 
@@ -145,7 +157,10 @@ class OrderResponse(BaseModel):
     updated_by: int 
     essay: EssayResponse
     option_list: List[int]
-    total_price: float 
+    total_price: float
+    is_disabled: bool
+    deadline: Optional[str] = None 
+    time_left: Optional[int] = 0
 
 
 
@@ -260,3 +275,20 @@ class EssayInfoResponse(BaseModel):
     predicted_topic: str
     num_errors: int
     spelling_errors: List[WordError]
+    
+class Deadline(BaseModel):
+    total_deadline: int
+    today_deadline: int 
+    week_deadline: int 
+    
+    
+class UserStatistics(BaseModel):
+    user_id: int 
+    role_id: int 
+    total_orders: int
+    total_payment: float 
+    total_done: int 
+    monthly_orders: int 
+    monthly_payment: float 
+    gross: Optional[str] = None  
+    

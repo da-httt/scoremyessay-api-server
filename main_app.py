@@ -1,7 +1,7 @@
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from routers import authentication, user, order, result, nlp
+from routers import authentication, statistics, user, order, result, nlp, admin
 import models 
 from dependencies import engine 
 from config import custom_openapi 
@@ -32,7 +32,14 @@ def custom_openapi():
     openapi_schema = get_openapi(
         title="ScoreMyEssay API",
         version="2.0.0",
-        description="University Project - 17N10 - Faculty of Information Technology",
+        description='''
+        University Project - 17N10 - Faculty of Information Technology
+        For testing:
+        1. admin@scoremyessay.com / admin 
+        2. teacher@gmail.com / teacher 
+        3. student@gmail.com / student 
+        
+        ''',
         routes=app.routes,
     )
     openapi_schema["info"]["x-logo"] = {
@@ -48,6 +55,8 @@ app.include_router(user.router)
 app.include_router(order.router)
 app.include_router(result.router)
 app.include_router(nlp.router)
+app.include_router(statistics.router)
+app.include_router(admin.router)
 
 @app.get("/")
 async def root():

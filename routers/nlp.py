@@ -8,7 +8,7 @@ from jose import JWTError, jwt
 import schemas 
 import models 
 from typing import Optional, List
-from dependencies import predictor 
+#from dependencies import predictor 
 from modules import spelling
 import json
  

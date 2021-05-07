@@ -53,7 +53,7 @@ async def get_order_result(order_id: int,
     option_list.sort()
     extra_option_list = [option_id for option_id in option_list if option_id not in [0,1,2]]
 
-    if 3 in option_list:
+    if 2 in option_list:
         isCriteria = True 
     if len(extra_option_list) > 0:
         isExtra = True 
@@ -165,11 +165,13 @@ async def update_result(order_id: int,
     option_list.sort()
     extra_option_list = [option_id for option_id in option_list if option_id not in [0,1,2]]
 
-    if 3 in option_list:
+    if 2 in option_list:
         isCriteria = True 
     if len(extra_option_list) > 0:
-        isExtra = True 
+        isExtra = True
+        
     db_criteria_list = db.query(models.Criteria).all()
+    
     if not db_result:
         db_result = models.Result(
             order_id = order_id,
