@@ -10,7 +10,7 @@ import schemas
 import models
 from jose import JWTError, jwt
 from modules.topic_classification import inference 
-
+import json 
 #Define secret key and algorithm
 SECRET_KEY = "b8f93afd6ae4f16427e475cb090a23671e6e9f00dc5fbd603c1469355f575854"
 ALGORITHM = "HS256"

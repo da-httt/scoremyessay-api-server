@@ -161,6 +161,8 @@ class OrderResponse(BaseModel):
     is_disabled: bool
     deadline: Optional[str] = None 
     time_left: Optional[int] = 0
+    topic_id: Optional[int] = 0
+    topic_name: Optional[str] = "SCIENCE & TECH"
 
 
 
@@ -267,12 +269,17 @@ class ListEssayCommentInDB(BaseModel):
 class WordError(BaseModel):
     index: int
     word: str
+    sentence: str
+    sentence_index: int 
     suggested_word: str 
       
 class EssayInfoResponse(BaseModel):
     essay_info_id: int
     essay_id: int
     predicted_topic: str
+    number_of_sentences: int 
+    average_sentence_length: float 
+    number_of_words: int 
     num_errors: int
     spelling_errors: List[WordError]
     
@@ -290,5 +297,46 @@ class UserStatistics(BaseModel):
     total_done: int 
     monthly_orders: int 
     monthly_payment: float 
-    gross: Optional[str] = None  
+    gross: Optional[float] = None  
+    
+class TopUserElement(BaseModel):
+    user_id: int
+    user_name: str
+    order_count: int
+    
+class TopUser(BaseModel):
+    totalCount: int
+    top_users: List[TopUserElement]
+    
+class RecentUser(BaseModel):
+    user_id: int
+    user_name: str 
+    
+class RecentOrder(BaseModel):
+    order_id: int
+    essay_type: str
+    student_id: int 
+    student_name: str 
+    total_price: float 
+    status_id: int 
+    
+class DailyProfit(BaseModel):
+    day: date
+    total_profit: Optional[float] = 0
+    total_orders: Optional[int] = 0 
+    
+class UploadImage(BaseModel):
+    base64: str 
+    
+class RatingInDB(BaseModel):
+    stars: float 
+    comment: Optional[str] = None  
+    
+class Rating(BaseModel):
+    rating_id: int
+    order_id: int
+    student_id: int 
+    teacher_id: Optional[int] = None  
+    stars: float 
+    comment: Optional[str] = None 
     

@@ -15,7 +15,7 @@ def getSentenceCount(para):
 
 def getAvgSentenceLength(text):
 	#split the essay into sentences
-	sentList = nltk.sent_tokenize(text)
+	sentList = tokenize.sent_tokenize(text)
 
 	sumSentLength = 0
 	for sent in sentList:

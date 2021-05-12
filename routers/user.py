@@ -1,13 +1,14 @@
 from dependencies import get_db, get_current_account
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Body
+from fastapi.responses import FileResponse 
 from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 import schemas 
 import models 
-
-
+import base64
+from cv2 import *
 router = APIRouter(
     tags=["User"],
     responses={404: {"description": "Not found"}},
@@ -154,4 +155,43 @@ async def delete_user(user_id:int,
     
     return get_user_account(db_user)
 
+@router.get("/avatars/{user_id}")
+async def get_user_avatar(user_id:int,
+                          current_account: schemas.Account = Depends(get_current_account),
+                          db: Session = Depends(get_db)):
+    db_avatar = db.query(models.Avatar).filter(models.Avatar.user_id == user_id).first()
+    if not db_avatar:
+        db_avatar = models.Avatar(user_id=user_id)
+        db.add(db_avatar)
+        db.commit()
+        db.refresh(db_avatar)
+    return {
+        "user_id": user_id,
+        "image_base64": db_avatar.img}
+
+
+@router.put("/avatars/{user_id}")
+async def create_user_avatar(user_id: int, 
+                             img: schemas.UploadImage ,
+                             current_account: schemas.Account = Depends(get_current_account),
+                             db: Session = Depends(get_db)):
+
+    if current_account.user_id != user_id:
+        if not current_account.role_id == 0:
+            raise HTTPException(status_code=403)
+    db_avatar = db.query(models.Avatar).filter(models.Avatar.user_id == user_id).first()
+    if not db_avatar:
+        db_avatar = models.Avatar(user_id=user_id)
+        db.add(db_avatar)
+        db.commit()
+        db.refresh(db_avatar)
     
+    db_avatar.img = img.base64
+    db.commit()
+    db.refresh(db_avatar)
+    
+    return {
+        "user_id": user_id,
+        "image_base64": db_avatar.img}
+        
+

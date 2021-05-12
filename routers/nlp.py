@@ -10,6 +10,7 @@ import models
 from typing import Optional, List
 #from dependencies import predictor 
 from modules import spelling
+from modules import paragraph
 import json
  
 router = APIRouter(
@@ -59,6 +60,8 @@ async def get_spelling_errors_of_essay(order_id:int,
             schemas.WordError(
                 index = spell_error['index'],
                 word = spell_error['word'],
+                sentence = spell_error['sentence'],
+                sentence_index = spell_error['sentence_index'],
                 suggested_word = spell_error['suggested_word']
             )
         )
@@ -67,6 +70,9 @@ async def get_spelling_errors_of_essay(order_id:int,
         essay_id = db_essay_info.essay_id,
         predicted_topic = db_essay_info.predicted_topic,
         num_errors = db_essay_info.num_errors,
+        number_of_sentences = paragraph.getSentenceCount(db_essay.content),
+        average_sentence_length = paragraph.getAvgSentenceLength(db_essay.content),
+        number_of_words = paragraph.getWordCount(db_essay.content),
         spelling_errors = list_word_errors
     )
     

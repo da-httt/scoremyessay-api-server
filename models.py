@@ -1,5 +1,5 @@
 from db import Base 
-from sqlalchemy import Boolean, Column, ForeignKey, Float, Integer, String, Date, DateTime 
+from sqlalchemy import Boolean, LargeBinary, Column, ForeignKey, Float, Integer, String, Date, DateTime 
 from sqlalchemy.orm import relationship
 
 
@@ -57,8 +57,17 @@ class User(Base):
     gender = relationship("Gender", back_populates="user")
     job = relationship("Job", back_populates="user")
     account = relationship("Account", back_populates="user")
+    avatar = relationship("Avatar", back_populates="user")
 
-
+class Avatar(Base):
+    __tablename__ = "avatars"
+    
+    avatar_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.user_id"))
+    img = Column(String)
+    
+    user = relationship("User", back_populates="avatar")
+    
 #Essay Class 
 class EssayLevel(Base):
     __tablename__ = "levels"
@@ -77,7 +86,7 @@ class EssayType(Base):
     type_price = Column(Float)
     
     level = relationship("EssayLevel", back_populates="type")
-    
+    essay = relationship("Essay", back_populates="essay_type")
     
 class Essay(Base):
     __tablename__ = "essays"
@@ -90,7 +99,7 @@ class Essay(Base):
     order = relationship("Order", back_populates="essay")
     essay_comment = relationship("EssayComment", back_populates="essay")
     essay_info = relationship("EssayInfo", back_populates="essay")
-    
+    essay_type = relationship("EssayType", back_populates="essay")
     
 class EssayComment(Base):
     __tablename__ = "essay_comments"
@@ -143,6 +152,17 @@ class Order(Base):
     status = relationship("Status", back_populates="order")
     essay = relationship("Essay", back_populates="order")
     rating = relationship("Rating", back_populates="order")
+    order_image = relationship("OrderImage", back_populates="order")
+
+class OrderImage(Base):
+    __tablename__ = "order_images"
+    
+    image_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    order_id = Column(Integer, ForeignKey("orders.order_id"))
+    img = Column(String)
+    
+    order = relationship("Order", back_populates="order_image")
+
 
 class Rating(Base):
     __tablename__ = "rating"
@@ -222,4 +242,6 @@ class EssayInfo(Base):
     
     essay = relationship("Essay", back_populates="essay_info")
     
+#class statistics 
 
+    

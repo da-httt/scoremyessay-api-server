@@ -1,12 +1,14 @@
 import enchant 
 import re 
-
+from modules import paragraph
 def spellCheck(text):
     #choose the dictionary 
     d = enchant.Dict("en_US")
     
     #Store number of misspelt words 
     numIncorrect = 0
+    
+    sentences = paragraph.paragraph_to_sentences(text)
     
     #Store misspelt words in dictionary
     misspelt = []
@@ -17,9 +19,18 @@ def spellCheck(text):
     #checking misspelt words 
     for index, word in enumerate(wordList):
         if d.check(word) == False:
+            current_length = 0
+            sentence = ""
+            j = 0 
+            while current_length < index:
+                current_length += paragraph.getWordCount(sentences[j])
+                j += 1 
+            print(sentences[j-1])
             misspelt.append(
                 {"index":index, 
                  "word": word,
+                 "sentence": sentences[j-1],
+                 "sentence_index": j-1,
                  "suggested_word": d.suggest(word)[0]}
             )
             numIncorrect += 1

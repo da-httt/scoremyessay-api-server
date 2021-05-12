@@ -1,5 +1,5 @@
 from dependencies import get_db, get_current_account
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query 
 from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from datetime import datetime, timedelta
@@ -7,12 +7,44 @@ from jose import JWTError, jwt
 import schemas 
 import models 
 from typing import Optional, List
-
-
+from sqlalchemy import desc
+from modules import paragraph
+#from dependencies import predictor 
+from modules import spelling
+import json
 router = APIRouter(
     tags=["Order"],
     responses={404: {"description": "Not found"}},
 )
+
+def get_topic(db_essay:models.Essay, db:Session):
+    db_essay_info = db_essay.essay_info
+    if not db_essay_info:
+        num_error, spelling_errors = spelling.spellCheck(db_essay.content)
+        data = json.dumps(spelling_errors)
+        topic_predicted = predictor.predict(db_essay.title)
+        db_essay_info = models.EssayInfo(
+            essay_id = db_essay.essay_id,
+            predicted_topic = topic_predicted,
+            num_errors = num_error,
+            spelling_errors = data
+        )
+        db.add(db_essay_info)
+        db.commit()
+        db.refresh(db_essay_info)
+    else:
+        return db_essay_info[0]
+    return db_essay_info
+
+def get_user_id(db: Session, order_id: int):
+    db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
+    return db_order.student_id, db_order.teacher_id
+
+def check_user_order(db: Session, order_id: int, user_id: int):
+    db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
+    if user_id in [db_order.student_id, db_order.teacher_id]:
+        return True 
+    return False 
 
 def get_time_left(db_order: models.Order):
     time_left = 0
@@ -22,8 +54,13 @@ def get_time_left(db_order: models.Order):
             time_left = current_time_left.days*24 + (current_time_left.seconds // 3600)
     return time_left 
     
-def get_order_response(db_order: models.Order):
-    db_essay = db_order.essay 
+def get_order_response(db_order: models.Order, db: Session):
+    db_essay = db_order.essay
+    deadline = None 
+    if db_order.deadline:
+        deadline = db_order.deadline.strftime("%m/%d/%Y, %H:%M:%S")
+    db_essay_info = get_topic(db_essay, db)
+    print(db_essay_info.predicted_topic)
     return schemas.OrderResponse(
             status_id = db_order.status_id,
             order_id = db_order.order_id,
@@ -41,8 +78,9 @@ def get_order_response(db_order: models.Order):
             option_list = [int(item) for item in db_order.option_list.split("-")],
             total_price = db_order.total_price,
             is_disabled = db_order.is_disabled,
-            deadline = db_order.deadline.strftime("%m/%d/%Y, %H:%M:%S"),
-            time_left = get_time_left(db_order)
+            deadline = deadline,
+            time_left = get_time_left(db_order),
+            topic_name = db_essay_info.predicted_topic
         )
 
 @router.get("/status",
@@ -122,7 +160,7 @@ async def get_essay_type(db: Session = Depends(get_db)):
 async def get_all_orders(current_account: schemas.Account = Depends(get_current_account),
                          db: Session = Depends(get_db)):
     if current_account.role_id == 0:
-        db_orders = db.query(models.Order).order_by(models.Order.order_id).all()
+        db_orders = db.query(models.Order).order_by(desc(models.Order.order_id)).all()
     else:
         if current_account.role_id == 1:
             db_orders = db.query(models.Order).filter(models.Order.student_id == current_account.user_id).order_by(models.Order.order_id).all()
@@ -132,9 +170,9 @@ async def get_all_orders(current_account: schemas.Account = Depends(get_current_
     
     order_list = []
     for db_order in db_orders:
-        if db_order.status_id == 0 or db_order.is_disabled:
+        if (db_order.status_id == 0 or db_order.is_disabled) and current_account.role_id !=0 :
             continue
-        order_list.append(get_order_response(db_order))
+        order_list.append(get_order_response(db_order, db))
     totalCount = len(order_list)
 
     order_list_response = schemas.OrderListResponse(
@@ -161,10 +199,11 @@ async def get_all_waiting_orders(current_account: schemas.Account = Depends(get_
 
     
     order_list = []
+    print("get waiting order")
     for db_order in db_orders:
-        if db_order.status_id != 1 and db_order.is_disabled:
+        if db_order.status_id != 1 or db_order.is_disabled:
             continue
-        order_list.append(get_order_response(db_order))
+        order_list.append(get_order_response(db_order, db))
     totalCount = len(order_list)
 
     order_list_response = schemas.OrderListResponse(
@@ -192,7 +231,7 @@ async def get_waiting_order_by_id(order_id:int,
     if current_account.role_id == 1:
             raise HTTPException(status_code = 403)
 
-    return get_order_response(db_order)
+    return get_order_response(db_order, db)
 
 
 @router.get("/orders/saved", 
@@ -217,7 +256,7 @@ async def get_saved_orders(current_account: schemas.Account = Depends(get_curren
     for db_order in db_orders:
         if db_order.status_id != 0 or db_order.is_disabled:
             continue 
-        order_list.append(get_order_response(db_order))
+        order_list.append(get_order_response(db_order, db))
     totalCount = len(order_list)
 
     order_list_response = schemas.OrderListResponse(
@@ -244,7 +283,7 @@ async def get_order_by_id(order_id:int,
     if role_id in [1,2] and user_id not in [db_order.student_id, db_order.teacher_id]:
         raise HTTPException(status_code = 403)
 
-    return get_order_response(db_order)
+    return get_order_response(db_order, db)
 
         
 @router.post("/orders", 
@@ -315,7 +354,7 @@ async def create_order(new_order: schemas.OrderInDB,
     db.refresh(db_order)
     
 
-    return get_order_response(db_order)
+    return get_order_response(db_order, db)
 
 @router.put("/orders/saved/{order_id}",
          response_model=schemas.OrderResponse,
@@ -383,7 +422,7 @@ async def update_order(order_id: int,
         if current_time_left.days >= 0 :
             time_left = current_time_left.days*24 + (current_time_left.seconds // 3600)
     
-    return get_order_response(db_order)
+    return get_order_response(db_order, db)
 
 
 
@@ -416,7 +455,7 @@ async def assign_teacher_order(order_id:int,
     db.commit()
     db.refresh(db_order)
     
-    return get_order_response(db_order)
+    return get_order_response(db_order, db)
     
     
 @router.delete("/orders/saved/{order_id}")
@@ -437,7 +476,7 @@ async def delete_saved_order(order_id: int,
     db.commit()
     db.refresh(db_order)
 
-    return get_order_response(db_order)
+    return get_order_response(db_order, db)
 
 @router.delete("/orders/{order_id}",
                description="Disable the paid order if student decide to cancel it, or the order is not taken before the deadline")
@@ -453,9 +492,193 @@ async def delete_order(order_id: int,
         raise HTTPException(status_code=403)
     updated_date = datetime.today()
     db_order.updated_date = updated_date 
-    db_order.is_disabled = not db_order.is_disabled
+    db_order.status_id = 4
     db.commit()
     db.refresh(db_order)
 
-    return get_order_response(db_order)
+    return get_order_response(db_order, db)
     
+@router.get("/orders/image/{order_id}")
+async def get_order_image(order_id:int,
+                          current_account: schemas.Account = Depends(get_current_account),
+                          db: Session = Depends(get_db)):
+    db_order_img = db.query(models.OrderImage).filter(models.OrderImage.order_id == order_id).first()
+    if not db_order_img:
+        db_order_img = models.OrderImage(order_id=order_id)
+        db.add(db_order_img)
+        db.commit()
+        db.refresh(db_order_img)
+    return {
+        "order_id": db_order_img.order_id,
+        "image_base64": db_order_img.img 
+    }
+
+
+@router.put("/orders/image/{order_id}")
+async def upload_order_image(order_id:int,
+                          order_image: schemas.UploadImage,
+                          current_account: schemas.Account = Depends(get_current_account),
+                          db: Session = Depends(get_db)):
+    db_order_img = db.query(models.OrderImage).filter(models.OrderImage.order_id == order_id).first()
+    if not db_order_img:
+        db_order_img = models.OrderImage(order_id=order_id)
+        db.add(db_order_img)
+        db.commit()
+        db.refresh(db_order_img)
+    db_order_img.img = order_image.base64
+    db.commit()
+    db.refresh(db_order_img)
+    return {
+        "order_id": db_order_img.order_id,
+        "image_base64": db_order_img.img 
+    }
+
+
+@router.post("/ratings/{order_id}")
+async def create_order_rating(order_id: int,
+                              rating_in_db: schemas.RatingInDB,
+                              current_account: schemas.Account  = Depends(get_current_account),
+                              db: Session = Depends(get_db)):
+    if current_account.role_id == 2:
+        raise HTTPException(status_code=403)
+
+    db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
+    
+    if not db_order:
+        raise HTTPException(status_code=404, detail="Order not found!")
+    
+    if db_order.status_id != 3:
+        raise HTTPException(status_code=409, detail="Order not done yet!")
+    
+    db_rating = db.query(models.Rating).filter(models.Rating.order_id==order_id).first()
+    
+    if db_rating:
+        raise HTTPException(status_code=409, detail="Rating already exists!")
+    
+    try:
+        db_rating = models.Rating(
+            order_id = order_id,
+            stars = rating_in_db.stars,
+            comment = rating_in_db.comment
+        )
+        db.add(db_rating)
+        db.commit()
+        db.refresh(db_rating)
+    except RuntimeError: 
+        raise HTTPException(status_code=500)
+    
+    
+    return schemas.Rating(
+            rating_id = db_rating.rating_id,
+            student_id = db_order.student_id,
+            teacher_id = db_order.teacher_id,
+            order_id = db_rating.order_id,
+            stars = db_rating.stars,
+            comment = db_rating.comment
+    )
+
+@router.get("/ratings/{order_id}",
+             response_model = schemas.Rating)
+async def get_order_rating(order_id: int,
+                              current_account: schemas.Account  = Depends(get_current_account),
+                              db: Session = Depends(get_db)):
+
+    db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
+    
+    if not db_order:
+        raise HTTPException(status_code=404, detail="Order not found!")
+    
+    if current_account.user_id not in [db_order.student_id, db_order.teacher_id] and current_account.role_id != 0:
+        raise HTTPException(status_code=403)
+
+    
+    db_rating = db.query(models.Rating).filter(models.Rating.order_id==order_id).first()
+    
+    if not db_rating:
+        raise HTTPException(status_code=404, detail="Rating not found!!")
+    
+    return schemas.Rating(
+            rating_id = db_rating.rating_id,
+            student_id = db_order.student_id,
+            teacher_id = db_order.teacher_id,
+            order_id = db_rating.order_id,
+            stars = db_rating.stars,
+            comment = db_rating.comment
+    )  
+    
+@router.get("/ratings")
+async def get_rating_list(current_account: schemas.Account  = Depends(get_current_account),
+                          student_id: int = Query(None, description="Get rating list by student id"),
+                            db: Session = Depends(get_db)):
+
+    db_rating_list = []
+    db_rating_list = db.query(models.Rating).\
+                            order_by(models.Rating.rating_id.desc()).\
+                            all()
+    
+    rating_list = []
+    for db_rating in db_rating_list:
+        if current_account.role_id != 0 :
+            if not check_user_order(db, db_rating.order_id, current_account.user_id):
+                continue
+        student_id, teacher_id = get_user_id(db, db_rating.order_id)
+        print(student_id)
+        print(teacher_id)
+        rating_list.append(schemas.Rating(
+            rating_id = db_rating.rating_id,
+            student_id = student_id,
+            teacher_id = teacher_id, 
+            order_id = db_rating.order_id,
+            stars = db_rating.stars,
+            comment = db_rating.comment 
+        ))
+    
+    return {
+        "totalCount": len(db_rating_list),
+        "data": rating_list 
+    }
+
+@router.put("/ratings/{order_id}",
+            response_model = schemas.Rating,
+            description="Admin API")
+async def update_order_rating(order_id: int,
+                              rating_in_db: schemas.RatingInDB,
+                              current_account: schemas.Account  = Depends(get_current_account),
+                              db: Session = Depends(get_db)):
+    if current_account.role_id != 0:
+        raise HTTPException(status_code=403)
+
+    db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
+    if db_order.status_id != 3:
+        raise HTTPException(status_code=409, detail="Order not done yet!")
+    if not db_order:
+        raise HTTPException(status_code=404, detail="Order not found!")
+
+    db_rating = db.query(models.Rating).filter(models.Rating.order_id==order_id).first()
+    
+    if not db_rating:
+        db_rating = models.Rating(
+            order_id = order_id,
+            stars = rating_in_db.stars,
+            comment = rating_in_db.comment
+        )
+        db.add(db_rating)
+        db.commit()
+        db.refresh(db_rating)
+    else:
+        db_rating.stars = rating_in_db.stars
+        db_rating.comment = rating_in_db.comment
+        db.commit()
+        db.refresh(db_rating)
+    
+    
+    return schemas.Rating(
+            rating_id = db_rating.rating_id,
+            student_id = db_order.student_id,
+            teacher_id = db_order.teacher_id,
+            order_id = db_rating.order_id,
+            stars = db_rating.stars,
+            comment = db_rating.comment
+    )
+    
+        
