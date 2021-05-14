@@ -170,7 +170,7 @@ async def get_all_orders(current_account: schemas.Account = Depends(get_current_
     
     order_list = []
     for db_order in db_orders:
-        if (db_order.status_id == 0 or db_order.is_disabled) and current_account.role_id !=0 :
+        if (db_order.status_id == 0 or db_order.is_disabled):
             continue
         order_list.append(get_order_response(db_order, db))
     totalCount = len(order_list)
@@ -398,8 +398,9 @@ async def update_order(order_id: int,
     deadline = 0
     for option_id in updated_order.option_list:
         total_price += db_optionlist[option_id].option_price
-        if db_optionlist[option_id].option_type == 1:
-            deadline_hour = int(db_optionlist[option_id].option_name) 
+        for db_option in db_optionlist:
+            if db_option.option_id == option_id:
+                deadline_hour = int(db_option.option_name) 
     total_price += db_type.type_price 
     time_left = 0
     #Set deadline 
@@ -415,12 +416,6 @@ async def update_order(order_id: int,
     
     db.commit()
     db.refresh(db_order)
-    db_essay = db_order.essay 
-    
-    if db_order.status_id != 0:
-        current_time_left =  db_order.deadline - datetime.today()
-        if current_time_left.days >= 0 :
-            time_left = current_time_left.days*24 + (current_time_left.seconds // 3600)
     
     return get_order_response(db_order, db)
 
@@ -485,7 +480,7 @@ async def delete_order(order_id: int,
                         db: Session = Depends(get_db)):
     db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first() 
 
-    if not db_order or db_order.status_id in [0,1]:
+    if not db_order or db_order.status_id in [0,3,4]:
         raise HTTPException(status_code=404)
     
     if current_account.user_id != db_order.student_id and current_account.role_id != 0:
@@ -681,4 +676,33 @@ async def update_order_rating(order_id: int,
             comment = db_rating.comment
     )
     
-        
+@router.get("/ratings/teacher/{user_id}",
+            description="Admin API")
+async def get_teacher_rating(user_id: int,
+                              current_account: schemas.Account  = Depends(get_current_account),
+                              db: Session = Depends(get_db)):
+    db_user = db.query(models.User).filter(models.User.user_id == user_id).first()
+    if not db_user or db_user.account.role_id  in [0,1]:
+        raise HTTPException(status_code=404)
+    
+    db_user_order = db.query(models.Order).filter(models.Order.teacher_id == user_id).all()
+
+    rating_response = {
+        "teacher_id": db_user.user_id,
+        "teacher_name": db_user.name,
+        "average_rating": 0
+    }
+    
+    if len(db_user_order) == 0:
+        return rating_response
+    
+    rating_list = [] 
+    for db_order in db_user_order:
+        if db_order.rating != []:
+            rating_list.append(db_order.rating[0].stars)
+    
+    if len(rating_list) == 0:
+        return rating_response
+    else:
+        rating_response['average_rating'] = sum(rating_list)/len(rating_list)
+        return rating_response 

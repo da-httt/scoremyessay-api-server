@@ -1,8 +1,8 @@
 from pydantic import EmailStr
-from pydantic import BaseModel
+from pydantic import BaseModel, Field 
 from typing import Optional, List
 from datetime import datetime, date,  timedelta, date
-
+from fastapi import Body 
 
 #schema class for authorization 
 class AccountLogin(BaseModel):
@@ -340,3 +340,12 @@ class Rating(BaseModel):
     stars: float 
     comment: Optional[str] = None 
     
+class OptionInDB(BaseModel):
+    option_name: str
+    option_price: Optional[float] = Field(
+        None, 
+        title="The price of the option",
+        gt=10000
+    )
+    option_type: Optional[int] = None 
+

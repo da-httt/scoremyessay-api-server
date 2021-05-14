@@ -29,15 +29,9 @@ def get_user_account(db_user: Session):
             
         )
     
-@router.get("/statistics/me",
-            response_model = schemas.UserStatistics,
-            description="Get current user's statistics: total/monthly orders, total/monthly payment")
-async def get_current_statistic(current_account: schemas.Account = Depends(get_current_account),
-                                db: Session = Depends(get_db)):
-    user_id = current_account.user_id
-    user_role_id = current_account.role_id
+def get_user_statistic(db:Session, user_id, user_role_id):
     db_order_list = []
-    
+
     if user_role_id == 1:
         db_order_list = db.query(models.Order).filter(models.Order.student_id == user_id).all()
     elif user_role_id == 2:
@@ -76,7 +70,29 @@ async def get_current_statistic(current_account: schemas.Account = Depends(get_c
         monthly_payment = monthly_payment,
         gross = gross 
     )
-            
+    
+    
+@router.get("/statistics/me",
+            response_model = schemas.UserStatistics,
+            description="Get current user's statistics: total/monthly orders, total/monthly payment")
+async def get_current_statistic(current_account: schemas.Account = Depends(get_current_account),
+                                db: Session = Depends(get_db)):
+    user_id = current_account.user_id
+    user_role_id = current_account.role_id
+    return get_user_statistic(db, user_id, user_role_id)
+
+@router.get("/statistics/{user_id}",
+            response_model = schemas.UserStatistics,
+            description="Get current user's statistics: total/monthly orders, total/monthly payment")
+async def get_current_statistic_by_user_id(user_id:int,
+                                current_account: schemas.Account = Depends(get_current_account),
+                                db: Session = Depends(get_db)):
+    db_user = db.query(models.User).filter(models.User.user_id == user_id).first()
+    if not db_user: 
+        raise HTTPException(status_code=404)
+    return get_user_statistic(db, user_id, db_user.account.role_id)
+
+          
 
 @router.get("/statistics/recent_users")
 async def get_users_statistic(current_account: schemas.Account = Depends(get_current_account),
