@@ -94,7 +94,7 @@ async def get_current_statistic_by_user_id(user_id:int,
 
           
 
-@router.get("/statistics/recent_users")
+@router.get("/recent_users")
 async def get_users_statistic(current_account: schemas.Account = Depends(get_current_account),
                                   db: Session = Depends(get_db)):
     if current_account.role_id != 0:
@@ -104,15 +104,21 @@ async def get_users_statistic(current_account: schemas.Account = Depends(get_cur
                     order_by(models.User.user_id.desc()).\
                         limit(10).\
                             all()
+    
     recent_users = []
     for db_user in db_user_list:
+        img = None 
+        db_avatar = db.query(models.Avatar).filter(models.Avatar.user_id == db_user.user_id).first()
+        if db_avatar:
+            img = db_avatar.img 
         recent_users.append(schemas.RecentUser(
             user_id = db_user.user_id,
-            user_name = db_user.name
+            user_name = db_user.name,
+            image_base64 = img
         ))
     return recent_users
         
-@router.get("/statistics/recent_orders",
+@router.get("/recent_orders",
             response_model = List[schemas.RecentOrder])
 async def get_users_statistic(current_account: schemas.Account = Depends(get_current_account),
                                   db: Session = Depends(get_db)):
@@ -132,12 +138,13 @@ async def get_users_statistic(current_account: schemas.Account = Depends(get_cur
             student_id = db_order.student.user_id,
             student_name = db_order.student.name,
             total_price = db_order.total_price, 
-            status_id = db_order.status_id 
+            status_id = db_order.status_id,
+            sent_date = db_order.sent_date
         ))
     return recent_orders
              
 
-@router.get("/statistics/top_user",
+@router.get("/top_users",
             response_model=schemas.TopUser)
 async def get_top_users_statistic(current_account: schemas.Account = Depends(get_current_account),
                                   db: Session = Depends(get_db)):
@@ -150,9 +157,14 @@ async def get_top_users_statistic(current_account: schemas.Account = Depends(get
     top_users = []
     for db_user_index in db_user_count:
         db_user = db.query(models.User).filter(models.User.user_id == db_user_index[0]).first()
+        img = None 
+        db_avatar = db.query(models.Avatar).filter(models.Avatar.user_id == db_user.user_id).first()
+        if db_avatar:
+            img = db_avatar.img 
         top_users.append(schemas.TopUserElement(
             user_id = db_user.user_id,
             user_name = db_user.name,
+            image_base64 = img,
             order_count = db_user_index[1]
         ))
     

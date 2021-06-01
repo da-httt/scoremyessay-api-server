@@ -1,17 +1,25 @@
 
+from db import SessionLocal
+from sqlalchemy.orm.session import Session
+from sqlalchemy.util.langhelpers import dependencies
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from routers import authentication, statistics, user, order, result, nlp, admin
-import models 
-from dependencies import engine 
+from routers import authentication, statistics, user, order, result, nlp, admin, teacher_promo
+from routers.teacher_promo import get_free_qualified_teacher
+import models
+import schemas
+from dependencies import engine, get_db
 from config import custom_openapi 
-
+from fastapi.responses import HTMLResponse
 from fastapi.openapi.utils import get_openapi
+import global_var
 
 
-
+global_var.init()
 
 models.Base.metadata.create_all(bind=engine)
+
+    
 
 app = FastAPI(
     title="ScoreMyEssay API"
@@ -57,7 +65,19 @@ app.include_router(result.router)
 app.include_router(nlp.router)
 app.include_router(statistics.router)
 app.include_router(admin.router)
+app.include_router(teacher_promo.router)
 
-@app.get("/")
-async def root():
-    return {"message": "Hello Bigger Applications!"}
+@app.on_event("startup")
+async def startup_event():
+    db= SessionLocal()
+    global_var.total_level0 = get_free_qualified_teacher(db, level_id=0)
+    global_var.total_level1 = get_free_qualified_teacher(db, level_id=1)
+    db.close()
+    
+with open('./template/index.html', 'r') as f:
+    html_string = f.read()
+    
+@app.get("/", response_class=HTMLResponse)
+async def root():   
+    return html_string
+

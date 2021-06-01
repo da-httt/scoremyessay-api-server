@@ -1,5 +1,5 @@
 from pydantic import EmailStr
-from pydantic import BaseModel, Field 
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime, date,  timedelta, date
 from fastapi import Body 
@@ -302,6 +302,7 @@ class UserStatistics(BaseModel):
 class TopUserElement(BaseModel):
     user_id: int
     user_name: str
+    image_base64: Optional[str] = None
     order_count: int
     
 class TopUser(BaseModel):
@@ -310,7 +311,8 @@ class TopUser(BaseModel):
     
 class RecentUser(BaseModel):
     user_id: int
-    user_name: str 
+    user_name: str
+    image_base64: Optional[str] = None
     
 class RecentOrder(BaseModel):
     order_id: int
@@ -319,6 +321,7 @@ class RecentOrder(BaseModel):
     student_name: str 
     total_price: float 
     status_id: int 
+    sent_date: datetime
     
 class DailyProfit(BaseModel):
     day: date
@@ -349,3 +352,27 @@ class OptionInDB(BaseModel):
     )
     option_type: Optional[int] = None 
 
+
+class EmailSchema(BaseModel):
+   email: List[EmailStr]
+   
+class TeacherForm(BaseModel):
+    name: str
+    gender_id: int
+    email: EmailStr 
+    address: str 
+    job_id: int 
+    phone_number: str 
+    date_of_birth: date 
+    avatar: Optional[str] = None 
+    cover_letter: Optional[str] = None 
+    
+class TeacherStatus(BaseModel):
+    teacher_id: int 
+    level_id: int 
+    active_essays: int 
+    lastTimeActive: datetime
+
+class TeacherStatusList(BaseModel):
+    totalCount: int 
+    data: List[TeacherStatus]

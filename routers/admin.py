@@ -473,7 +473,10 @@ async def reset_deadline(order_id: int,
     
     db_order.deadline = deadline
     if db_order.status_id == 4:
-        db_order.status_id = 2
+        if db_order.teacher:
+            db_order.status_id = 2
+        else:
+            db_order.status_id = 1
     db.commit()
     db.refresh(db_order)
     

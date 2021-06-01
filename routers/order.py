@@ -3,11 +3,11 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from datetime import datetime, timedelta
-from jose import JWTError, jwt
+from routers.teacher_promo import *
 import schemas 
 import models 
 from typing import Optional, List
-from sqlalchemy import desc
+from sqlalchemy import desc, schema
 from modules import paragraph
 #from dependencies import predictor 
 from modules import spelling
@@ -17,12 +17,17 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
+
+
+
+
+
 def get_topic(db_essay:models.Essay, db:Session):
     db_essay_info = db_essay.essay_info
     if not db_essay_info:
         num_error, spelling_errors = spelling.spellCheck(db_essay.content)
         data = json.dumps(spelling_errors)
-        topic_predicted = predictor.predict(db_essay.title)
+        topic_predicted = "SCIENE & TECH" 
         db_essay_info = models.EssayInfo(
             essay_id = db_essay.essay_id,
             predicted_topic = topic_predicted,
@@ -36,6 +41,10 @@ def get_topic(db_essay:models.Essay, db:Session):
         return db_essay_info[0]
     return db_essay_info
 
+def convert_type_to_level(db, type_id: int):
+    db_type = db.query(models.EssayType).filter(models.EssayType.type_id == type_id).first()
+    return db_type.level.level_id
+
 def get_user_id(db: Session, order_id: int):
     db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
     return db_order.student_id, db_order.teacher_id
@@ -46,12 +55,17 @@ def check_user_order(db: Session, order_id: int, user_id: int):
         return True 
     return False 
 
-def get_time_left(db_order: models.Order):
+def get_time_left(db, db_order: models.Order):
     time_left = 0
+    current_time = datetime.today()
     if db_order.status_id != 0:
-        current_time_left =  db_order.deadline - datetime.today() + timedelta(hours=1)
+        current_time_left =  db_order.deadline - current_time + timedelta(hours=1)
         if current_time_left.days >= 0 :
             time_left = current_time_left.days*24 + (current_time_left.seconds // 3600)
+    if (time_left == 0 and db_order.status_id in [1,2]) or (current_time - db_order.sent_date >  timedelta(minutes=30) and (db_order.status_id == 1)):
+        db_order.status_id = 4
+        db.commit()
+        db.refresh(db_order)
     return time_left 
     
 def get_order_response(db_order: models.Order, db: Session):
@@ -79,7 +93,7 @@ def get_order_response(db_order: models.Order, db: Session):
             total_price = db_order.total_price,
             is_disabled = db_order.is_disabled,
             deadline = deadline,
-            time_left = get_time_left(db_order),
+            time_left = get_time_left(db, db_order),
             topic_name = db_essay_info.predicted_topic
         )
 
@@ -196,12 +210,12 @@ async def get_all_waiting_orders(current_account: schemas.Account = Depends(get_
             raise HTTPException(status_code = 403)
 
     db_orders = db.query(models.Order).order_by(models.Order.order_id).all()
-
+    db_teacher_status = db.query(models.TeacherStatus).filter(models.TeacherStatus.teacher_id == current_account.user_id).first()
     
     order_list = []
     print("get waiting order")
     for db_order in db_orders:
-        if db_order.status_id != 1 or db_order.is_disabled:
+        if db_order.status_id != 1 or db_order.is_disabled or convert_type_to_level(db, db_order.essay.type_id) != db_teacher_status.level_id :
             continue
         order_list.append(get_order_response(db_order, db))
     totalCount = len(order_list)
@@ -225,6 +239,9 @@ async def get_waiting_order_by_id(order_id:int,
                           db: Session = Depends(get_db)):
 
     db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
+    db_teacher_status = db.query(models.TeacherStatus).filter(models.TeacherStatus.teacher_id == current_account.user_id).first()
+    if convert_type_to_level(db, db_order.essay.type_id) != db_teacher_status.level_id:
+        raise HTTPException(status_code=403, detail="Teacher's level doesn't match")
     if not db_order or db_order.is_disabled:
         raise HTTPException(status_code = 404, detail="Order not found")
     
@@ -312,6 +329,9 @@ async def create_order(new_order: schemas.OrderInDB,
     
     if not db_type:
         raise HTTPException(status_code=400, detail="Type ID not found") 
+    if status_id == 1:
+        if not if_any_teacher_left(level_id=convert_type_to_level(db, new_order.essay.type_id)):
+            raise HTTPException(status_code=408, detail="All Teachers are busy")
     
     db_essay = models.Essay(
             title=new_order.essay.title,
@@ -386,6 +406,11 @@ async def update_order(order_id: int,
     
     updated_date = datetime.today()
     
+    if updated_order.status_id == 1:
+        if not if_any_teacher_left(level_id=convert_type_to_level(db, updated_order.essay.type_id)):
+            raise HTTPException(status_code=408, detail="All Teachers are busy")
+    
+    
     db_order.status_id = updated_order.status_id 
     db_order.updated_by = current_account.user_id 
     db_order.updated_date = updated_date
@@ -400,7 +425,8 @@ async def update_order(order_id: int,
         total_price += db_optionlist[option_id].option_price
         for db_option in db_optionlist:
             if db_option.option_id == option_id:
-                deadline_hour = int(db_option.option_name) 
+                if db_option.option_type == 1:
+                    deadline_hour = int(db_option.option_name) 
     total_price += db_type.type_price 
     time_left = 0
     #Set deadline 
@@ -437,6 +463,10 @@ async def assign_teacher_order(order_id:int,
     else:
         teacher_id = current_account.user_id
     
+    db_teacher_status = db.query(models.TeacherStatus).filter(models.TeacherStatus.teacher_id == teacher_id).first()
+    if if_max_essays(db_teacher_status):
+        raise HTTPException(status_code=405, detail="the teacher has reached maximum essays")
+    
     db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
     if not db_order or db_order.is_disabled:
         raise HTTPException(status_code=404, detail="order_id not found")
@@ -449,6 +479,8 @@ async def assign_teacher_order(order_id:int,
     db_order.status_id = 2
     db.commit()
     db.refresh(db_order)
+    
+    change_current_scoring_essay(db, db_teacher_status, increase=True)
     
     return get_order_response(db_order, db)
     
@@ -646,20 +678,6 @@ async def update_order_rating(order_id: int,
     db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
     if db_order.status_id != 3:
         raise HTTPException(status_code=409, detail="Order not done yet!")
-    if not db_order:
-        raise HTTPException(status_code=404, detail="Order not found!")
-
-    db_rating = db.query(models.Rating).filter(models.Rating.order_id==order_id).first()
-    
-    if not db_rating:
-        db_rating = models.Rating(
-            order_id = order_id,
-            stars = rating_in_db.stars,
-            comment = rating_in_db.comment
-        )
-        db.add(db_rating)
-        db.commit()
-        db.refresh(db_rating)
     else:
         db_rating.stars = rating_in_db.stars
         db_rating.comment = rating_in_db.comment
@@ -706,3 +724,4 @@ async def get_teacher_rating(user_id: int,
     else:
         rating_response['average_rating'] = sum(rating_list)/len(rating_list)
         return rating_response 
+

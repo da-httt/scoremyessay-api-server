@@ -21,7 +21,7 @@ router = APIRouter(
 
 @router.post("/predict_topic")
 async def predict_essay_topic(paragraph: str):
-    return predictor.predict(paragraph)
+    return {}#predictor.predict(paragraph)
 
     
 @router.get("/spelling_errors/{order_id}",
@@ -42,7 +42,7 @@ async def get_spelling_errors_of_essay(order_id:int,
     if not db_essay_info:
         num_error, spelling_errors = spelling.spellCheck(db_essay.content)
         data = json.dumps(spelling_errors)
-        topic_predicted = predictor.predict(db_essay.title)
+        topic_predicted = "SCIENCE & TECH" #predictor.predict(db_essay.title)
         db_essay_info = models.EssayInfo(
             essay_id = db_essay.essay_id,
             predicted_topic = topic_predicted,

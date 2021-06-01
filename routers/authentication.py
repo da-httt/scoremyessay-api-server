@@ -3,10 +3,13 @@ from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
-
+from fastapi_mail import FastMail, MessageSchema,ConnectionConfig
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from routers.teacher_promo import create_teacher_status
 import models
 from dependencies import oauth2_scheme, get_db, pwd_context, get_account, get_current_account, get_current_active_account, verify_password, get_password_hash, create_access_token, authenticate_account
-from dependencies import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+from dependencies import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, conf
 
 import schemas
 
@@ -17,9 +20,12 @@ router = APIRouter(
 )
 
 
-async def create_account(db: Session, new_account: schemas.SignUp, role_id=1):
+async def create_account(db: Session, new_account, role_id=1, default_password=None):
 
-    hashed_password = get_password_hash(new_account.password)
+    if not default_password:
+        hashed_password = get_password_hash(new_account.password)
+    else:
+        hashed_password = get_password_hash(default_password)
     db_account = models.Account(email=new_account.email,
                                 hashed_password=hashed_password,
                                 disabled=False,
@@ -39,6 +45,16 @@ async def create_account(db: Session, new_account: schemas.SignUp, role_id=1):
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
+    if db_user:
+        if role_id == 2:
+            create_teacher_status(db, db_user.user_id, level_id=0)
+    
+    if new_account.avatar:
+        db_avatar = models.Avatar(user_id=db_user.user_id, img=new_account.avatar)
+        db.add(db_avatar)
+        db.commit()
+        db.refresh(db_avatar)
+        
 
     return db_account, db_user
 
@@ -110,7 +126,7 @@ async def signup_for_new_account(new_account: schemas.SignUp,
 async def read_account_me(current_account: schemas.Account = Depends(get_current_active_account)):
     return current_account 
 
-@router.post("/signup/teacher", response_model=schemas.Account)
+"""@router.post("/signup/admin/teacher", response_model=schemas.Account)
 async def signup_for_new_account(new_account: schemas.SignUp,
                                 current_account: schemas.Account = Depends(get_current_account),
                                  db: Session = Depends(get_db)):
@@ -130,7 +146,7 @@ async def signup_for_new_account(new_account: schemas.SignUp,
                            email=db_account.email,
                            disabled=db_account.disabled,
                            role_id=db_account.role_id)
-
+"""
 
 @router.get("/accounts/me", response_model=schemas.Account)
 async def read_account_me(current_account: schemas.Account = Depends(get_current_active_account)):
@@ -164,3 +180,48 @@ async def change_password_by_account_id(account_id: int,
         models.Account.account_id == account_id).first()
     db_account = await change_password(db, db_account, new_password)
     return current_account
+
+
+
+@router.post("/signup/teacher")
+async def sign_up_for_teacher(teacher_form: schemas.TeacherForm,
+                              db: Session = Depends(get_db)):
+    
+    if get_account(db, teacher_form.email):
+        raise HTTPException(status_code=409, detail="Email already registered")
+
+    if not db.query(models.Role).filter(models.Job.job_id == teacher_form.job_id).first():
+        raise HTTPException(status_code=400, detail="role_id not found")
+
+    if not db.query(models.Gender).filter(models.Gender.gender_id == teacher_form.gender_id).first():
+        raise HTTPException(status_code=400, detail="gender_id not found")
+
+    db_account, db_user = await create_account(db, teacher_form,role_id=2,default_password="123456")
+
+    if db_account:
+        template = f"""
+            <html>
+            <body>
+            
+    <p>From ScoreMyEssay, !!!
+            <br>Congratulation, your application has been approved.!!</p>
+            <p>You can access ScoreMyEssay with account below:</p>
+            <br>Name: {db_user.name}
+            <br>Email: {db_account.email}
+            <br>Password: {123456}
+            </body>
+            </html>
+            """
+    message = MessageSchema(
+        subject="ScoreMyEssay - Teacher Application Result",
+        recipients=[db_account.email],  # List of recipients, as many as you can pass 
+        body=template,
+        subtype="html"
+        )
+  
+    fm = FastMail(conf)
+    await fm.send_message(message)
+    print(message)
+  
+    
+    return JSONResponse(status_code=200, content={"message": "Application has been sent!"})

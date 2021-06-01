@@ -9,7 +9,8 @@ import schemas
 import models 
 from typing import Optional, List
 from modules import paragraph
-
+from routers.teacher_promo import *
+import global_var
 router = APIRouter(
     tags=["Result"],
     responses={404: {"description": "Not found"}},
@@ -262,7 +263,9 @@ async def update_result(order_id: int,
                 content = db_extra.content
             ))
         result_response.extra_results = extra_results
-    
+    if status_id == 3: 
+        db_teacher_status = db.query(models.TeacherStatus).filter(models.TeacherStatus.teacher_id == db_order.teacher_id).first()
+        change_current_scoring_essay(db, db_teacher_status, increase=False)
     return result_response
 
 

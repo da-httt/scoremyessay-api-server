@@ -1,6 +1,12 @@
 import enchant 
 import re 
 from modules import paragraph
+
+
+def suggest_word(d, word):
+    if len(d.suggest(word)) > 0:
+        return d.suggest(word)[0]
+    return "Can not find suitable word!"
 def spellCheck(text):
     #choose the dictionary 
     d = enchant.Dict("en_US")
@@ -31,7 +37,7 @@ def spellCheck(text):
                  "word": word,
                  "sentence": sentences[j-1],
                  "sentence_index": j-1,
-                 "suggested_word": d.suggest(word)[0]}
+                 "suggested_word":suggest_word(d, word)}
             )
             numIncorrect += 1
             
