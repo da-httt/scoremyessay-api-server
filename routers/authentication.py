@@ -8,7 +8,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from routers.teacher_promo import create_teacher_status
 import models
-from dependencies import oauth2_scheme, get_db, pwd_context, get_account, get_current_account, get_current_active_account, verify_password, get_password_hash, create_access_token, authenticate_account
+from dependencies import oauth2_scheme, get_db, pwd_context, get_account, get_current_account, verify_password, get_password_hash, create_access_token, authenticate_account
 from dependencies import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, conf
 
 import schemas
@@ -20,7 +20,7 @@ router = APIRouter(
 )
 
 
-async def create_account(db: Session, new_account, role_id=1, default_password=None):
+async def create_account(db: Session, new_account, role_id=1, default_password=None, level_id=None):
 
     if not default_password:
         hashed_password = get_password_hash(new_account.password)
@@ -47,7 +47,7 @@ async def create_account(db: Session, new_account, role_id=1, default_password=N
     db.refresh(db_user)
     if db_user:
         if role_id == 2:
-            create_teacher_status(db, db_user.user_id, level_id=0)
+            await create_teacher_status(db, db_user.user_id, level_id=level_id)
     
     if new_account.avatar:
         db_avatar = models.Avatar(user_id=db_user.user_id, img=new_account.avatar)
@@ -55,6 +55,14 @@ async def create_account(db: Session, new_account, role_id=1, default_password=N
         db.commit()
         db.refresh(db_avatar)
         
+    db_usercredit = models.UserCredit(
+        user_id = db_user.user_id,
+        created_at = datetime.today(),
+        updated_at = datetime.today()
+    )
+    db.add(db_usercredit)
+    db.commit()
+    db.refresh(db_usercredit)
 
     return db_account, db_user
 
@@ -123,7 +131,7 @@ async def signup_for_new_account(new_account: schemas.SignUp,
 
 
 @router.get("/accounts/me", response_model=schemas.Account)
-async def read_account_me(current_account: schemas.Account = Depends(get_current_active_account)):
+async def read_account_me(current_account: schemas.Account = Depends(get_current_account)):
     return current_account 
 
 """@router.post("/signup/admin/teacher", response_model=schemas.Account)
@@ -149,7 +157,7 @@ async def signup_for_new_account(new_account: schemas.SignUp,
 """
 
 @router.get("/accounts/me", response_model=schemas.Account)
-async def read_account_me(current_account: schemas.Account = Depends(get_current_active_account)):
+async def read_account_me(current_account: schemas.Account = Depends(get_current_account)):
     return current_account
 
 
@@ -157,7 +165,7 @@ async def read_account_me(current_account: schemas.Account = Depends(get_current
 @router.put("/change_password/me", response_model=schemas.Account)
 async def change_current_password(new_password: str,
                           current_account: schemas.Account = Depends(
-                              get_current_active_account),
+                              get_current_account),
                           db: Session = Depends(get_db)):
     db_account = db.query(models.Account).filter(
         models.Account.account_id == current_account.account_id).first()
@@ -172,7 +180,7 @@ async def change_current_password(new_password: str,
 async def change_password_by_account_id(account_id: int,
                           new_password: str,
                           current_account: schemas.Account = Depends(
-                              get_current_active_account),
+                              get_current_account),
                           db: Session = Depends(get_db)):
     if current_account.role_id != 0:
         raise HTTPException(status_code=403)
@@ -196,7 +204,7 @@ async def sign_up_for_teacher(teacher_form: schemas.TeacherForm,
     if not db.query(models.Gender).filter(models.Gender.gender_id == teacher_form.gender_id).first():
         raise HTTPException(status_code=400, detail="gender_id not found")
 
-    db_account, db_user = await create_account(db, teacher_form,role_id=2,default_password="123456")
+    db_account, db_user = await create_account(db, teacher_form,role_id=2,default_password="123456", level_id=teacher_form.level_id)
 
     if db_account:
         template = f"""

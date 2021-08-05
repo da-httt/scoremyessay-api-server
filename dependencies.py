@@ -6,12 +6,13 @@ from datetime import datetime, timedelta
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from db import SessionLocal, engine 
 from passlib.context import CryptContext
+from datetime import datetime, timedelta
 import schemas 
 import models
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 
-from fastapi_mail import FastMail, MessageSchema,ConnectionConfig
+from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
 
 #from modules.topic_classification import inference 
 import json 
@@ -45,76 +46,7 @@ def get_db():
         db.close()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-'''
-Get Free Qualified Teacher
-'''
-"""
-def get_list_teacher_status(db: Session):
-    return db.query(models.TeacherStatus).all()
 
-def get_free_qualified_teacher(db: Session, db_list_teacher_status, level_id: int ):
-    db.refresh(db_list_teacher_status)
-    db_free_teacher = [db_teacher for db_teacher in db_list_teacher_status if (db_teacher.active_essay < 5 and db_teacher.level_id == level_id)]
-    return len(db_free_teacher)
-def change_total(db_teacher_status: models.TeacherStatus):
-    level = db_teacher_status
-    
-def update_last_active(db: Session, db_teacher_status: models.TeacherStatus):
-    current_time = datetime.today()
-    try:
-        db_teacher_status.lastTimeActive = current_time
-        db.commit()
-        db.refresh(db_teacher_status)
-    except: 
-        raise HTTPException(status_code=500, detail="Can not read teacher status")
-def if_level_qualified(db: Session, db_user: models.User, db_essay: models.Essay):
-    try:
-        level_id = db_user.teacher_status[0].level_id 
-        if level_id == db_essay.level_id:
-            return True 
-        else:
-            raise HTTPException(status_code=403, detail="Teacher Level doesn't match the Essay Level.")
-    except:
-        raise HTTPException(status_code=500, detail="Cant not read the Teacher information.")
-    
-    
-def if_any_teacher_left(db: Session, db_essay: models.Essay):
-    level_id = db_essay.level_id 
-    return 1
-    
-    
-def change_current_scoring_essay(db: Session, db_teacher_status: models.TeacherStatus, increase=True):
-    try:
-        if increase:
-            if db_teacher_status.active_essays == 5:
-                raise HTTPException(status_code=405, detail="The teacher has reached maximum essays")
-            db_teacher_status.active_essays += 1
-        else:
-            if db_teacher_status.active_essays == 0:
-                raise HTTPException(status_code=405)
-            if db_teacher_status.active_essays == 5:
-                db_teacher_status.active_essays -= 1
-        db.commit()
-        db.refresh(db_teacher_status)
-    except:
-        raise HTTPException(status_code=500, detail="Can not change teacher current active essay.")
-    
-def if_max_essays(db_teacher_status: models.TeacherStatus):
-    try:
-        if db_teacher_status.active_essays == 5:
-            return True
-        else:
-            return False 
-    except:
-        raise HTTPException(status_code=500, detail="Can not read the teacher's current active essay")
-    
-#Level 0 Teacher 
-db_list_teacher_status = get_list_teacher_status(get_db())
-total_level0 = get_free_qualified_teacher(get_db(), db_list_teacher_status, level_id=0)
-total_level1 = get_free_qualified_teacher(get_db(), db_list_teacher_status, level_id=1)
-
-
-"""
 #Define CryptContext
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -152,10 +84,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     
     return encoded_jwt 
 
-
     
 
-async def get_current_account(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+async def get_current_detail_account(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -182,10 +113,17 @@ async def get_current_account(token: str = Depends(oauth2_scheme), db: Session =
         email=account.email,
         role_id=account.role_id,
         disabled=account.disabled)
+    
+    db_user = db.query(models.User).filter(models.User.user_id == account.user[0].user_id).first()
+    db_user.lastTimeActive = datetime.today()
+    db.commit()
+    db.refresh(db_user)
+    print("User Activity | user_id: ", db_user.user_id, " | time: ", datetime.today())
+    
     return schema_account 
 
 #Authentication Route 
-async def get_current_active_account(account: schemas.Account = Depends(get_current_account)):
+async def get_current_account(account: schemas.Account = Depends(get_current_detail_account)):
     print("Getting info..")
     if account.disabled:
         raise HTTPException(status_code=400, detail="Inactive user")

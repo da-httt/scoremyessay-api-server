@@ -14,7 +14,65 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-
+def get_fake_bank_user(db: Session, user_id: int ,  db_credit_card: Session):
+    
+    db_bank_user = db.query(models.FakeBank).filter(models.FakeBank.user_id == user_id).first()
+    default_balance = 0 
+    if db_credit_card.account_no != None: 
+        default_balance = 1000000
+        
+    if not db_bank_user:
+        db_bank_user = models.FakeBank(
+            user_id = user_id,
+            account_no = db_credit_card.account_no,
+            balance = default_balance
+        )
+        db.add(db_bank_user)
+        db.commit()
+        db.refresh(db_bank_user)
+        
+    if db_bank_user.account_no != db_credit_card.account_no:
+        db_bank_user.account_no = db_credit_card.account_no
+        db.commit()
+        db.refresh(db_bank_user)
+        
+    return schemas.UserCreditCardInfo(
+        user_id = user_id,
+        provider = db_credit_card.provider,
+        account_no = db_credit_card.account_no,
+        expiry_date = db_credit_card.expiry_date,
+        balance = db_bank_user.balance
+    ), db_bank_user
+    
+def reset_bank_balance(db: Session, db_user: Session,  db_credit_card: Session):
+    db_bank_user = db.query(models.FakeBank).filter(models.FakeBank.user_id == db_user.user_id).first()
+    
+    default_balance = 0 
+    
+    if db_credit_card.account_no != None: 
+        default_balance = 1000000
+    
+    if not db_bank_user:
+        db_bank_user = models.FakeBank(
+            user_id = db_user.user_id,
+            account_no = db_credit_card.account_no,
+            balance = default_balance
+        )
+        db.add(db_bank_user)
+        db.commit()
+        db.refresh(db_bank_user)
+    
+    db_bank_user.balance = 1000000
+    db.commit()
+    db.refresh(db_bank_user)
+        
+    return schemas.UserCreditCardInfo(
+        db_user.user_id, db_credit_card.provider,
+        db_credit_card.account_no, db_credit_card.expiry_date,
+        db_bank_user.blance
+    )
+            
+        
 def get_user_account(db_user: Session):
     return schemas.UserAccount(
             account_id = db_user.account.account_id,
@@ -194,4 +252,36 @@ async def create_user_avatar(user_id: int,
         "user_id": user_id,
         "image_base64": db_avatar.img}
         
+@router.get("/credit_card/me", response_model = schemas.UserCreditCardInfo)
+async def get_credit_card(current_account: schemas.Account = Depends(get_current_account),
+                          db: Session = Depends(get_db)):
 
+    db_credit_card = db.query(models.UserCredit).filter(models.UserCredit.user_id == current_account.user_id).first()
+    if not db_credit_card:
+        raise HTTPException(status_code=404)
+    
+    bank_user, _ =  get_fake_bank_user(db, current_account.user_id, db_credit_card)
+    
+    return bank_user
+    
+    
+@router.put("/credit_card/me", response_model = schemas.UserCreditCard)
+async def update_credit_card(credit_card_info: schemas.UserCreditCardInDB,
+                             current_account: schemas.Account = Depends(get_current_account),
+                            db: Session = Depends(get_db)):
+    
+    
+    db_credit_card = db.query(models.UserCredit).filter(models.UserCredit.user_id == current_account.user_id).first()
+    
+    if not db_credit_card:
+        raise HTTPException(status_code=404)
+    
+    db_credit_card.provider = credit_card_info.provider
+    db_credit_card.account_no = credit_card_info.account_no
+    db_credit_card.expiry_date = credit_card_info.expiry_date
+    db_credit_card.updated_at = datetime.today()
+    db.commit()
+    db.refresh(db_credit_card)
+    
+    bank_user, _ =  get_fake_bank_user(db, current_account.user_id, db_credit_card)
+    return bank_user

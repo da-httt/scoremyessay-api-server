@@ -35,6 +35,7 @@ class SignUp(BaseModel):
     gender_id: Optional[int] = 1 
     job_id: Optional[int] = 1
     phone_number: Optional[str] = "123456789"
+    avatar: Optional[str] = None
 
 #schema class for user management
 class User(BaseModel):
@@ -137,9 +138,7 @@ class OrderInDB(BaseModel):
     essay: EssayInDB
     option_list: List[int]  
 
-class OrderUpdate(OrderInDB):
-    status_id: int 
-    
+
 
 class EssayResponse(BaseModel):
     essay_id: int 
@@ -161,11 +160,19 @@ class OrderResponse(BaseModel):
     is_disabled: bool
     deadline: Optional[str] = None 
     time_left: Optional[int] = 0
-    topic_id: Optional[int] = 0
-    topic_name: Optional[str] = "SCIENCE & TECH"
+    keywords: List[str]
 
+class SuggestedOrderResponse(OrderResponse):
+    isSuggested: bool 
 
-
+class SuggestedOrderListResponse(BaseModel):
+    status: str
+    totalCount: int 
+    pageCount: Optional[int] = 1
+    currentPage: Optional[int] = 1
+    perPage: Optional[int] = 20 
+    data: List[SuggestedOrderResponse]
+    
 class OrderListResponse(BaseModel):
     status: str
     totalCount: int 
@@ -276,7 +283,7 @@ class WordError(BaseModel):
 class EssayInfoResponse(BaseModel):
     essay_info_id: int
     essay_id: int
-    predicted_topic: str
+    keywords: List[str]
     number_of_sentences: int 
     average_sentence_length: float 
     number_of_words: int 
@@ -364,6 +371,7 @@ class TeacherForm(BaseModel):
     job_id: int 
     phone_number: str 
     date_of_birth: date 
+    level_id: int 
     avatar: Optional[str] = None 
     cover_letter: Optional[str] = None 
     
@@ -371,8 +379,44 @@ class TeacherStatus(BaseModel):
     teacher_id: int 
     level_id: int 
     active_essays: int 
-    lastTimeActive: datetime
 
 class TeacherStatusList(BaseModel):
     totalCount: int 
     data: List[TeacherStatus]
+    
+    
+class Invoice(BaseModel):
+    order_id: int 
+    user_id: int 
+    type_id: int 
+    level_id: int 
+    option_list: List[int]
+    total_price: float
+    payment_type: str 
+    payment_status: str 
+    payment_message: str 
+    payment_date: datetime 
+    
+class InvoiceList(BaseModel):
+    totalCount: int 
+    currentPage: Optional[int]
+    pageCount: Optional[int]
+    perPage: Optional[int]
+    invoices: List[Invoice]
+    
+class UserCreditCard(BaseModel):
+    user_id : int
+    provider: Optional[str] = None
+    account_no: Optional[str] = None  
+    expiry_date: Optional[date] = None  
+    
+class UserCreditCardInfo(UserCreditCard):
+    balance: Optional[float] = 1000000 
+    currency: Optional[str] = "VND"
+    
+    
+class UserCreditCardInDB(BaseModel):
+    provider: str 
+    account_no: str 
+    expiry_date: date 
+    

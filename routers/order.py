@@ -1,3 +1,4 @@
+from re import DEBUG
 from dependencies import get_db, get_current_account
 from fastapi import APIRouter, Depends, HTTPException, status, Query 
 from sqlalchemy.orm import Session
@@ -11,6 +12,7 @@ from sqlalchemy import desc, schema
 from modules import paragraph
 #from dependencies import predictor 
 from modules import spelling
+from routers.user import get_fake_bank_user
 import json
 router = APIRouter(
     tags=["Order"],
@@ -18,19 +20,82 @@ router = APIRouter(
 )
 
 
+async def process_payment(db: Session, db_order: models.Order, user_id: int):
+    
+    db_user_credit = db.query(models.UserCredit).\
+                        filter(models.UserCredit.user_id == user_id).\
+                            first()
+    
+    if not db_user_credit:
+        raise HTTPException(status_code=404, detail="No Credit Card found")
+    
+    
+    _, db_bank_user = get_fake_bank_user(db, user_id, db_user_credit)
+    
+    db_bank_user.balance -= db_order.total_price 
+    db.commit()
+    db.refresh(db_bank_user)
 
+    db_payment = models.OrderPayment(
+        order_id = db_order.order_id,
+        total_price = db_order.total_price,
+        payment_type = 'CREDIT_CARD',
+        paid_by = user_id,
+        created_at = datetime.today()
+    )
 
+    
+    db_optionlist = db.query(models.Option).all()
+    option_list = [int(item) for item in db_order.option_list.split("-")]
 
+    deadline_hour = 0
+    print(db_optionlist[0])
+    for db_option in db_optionlist:
+        if db_option.option_id in option_list:
+            if db_option.option_type == 1:
+                deadline_hour = int(db_option.option_name)
+    
+    db_order.deadline = datetime.today() + timedelta(hours=deadline_hour)
+    db_order.status_id = 1
+    db.commit()
+    db.refresh(db_order)
+    
+    db_payment.paid_status = "TRUE"
+    db_payment.payment_message = "SUCCESSFULLY"
+        
+    db_payment.created_at = datetime.today()
+    db.add(db_payment)
+    db.commit()
+    db.refresh(db_payment)
+    
+    return db_payment 
 
+def convert_payment_to_invoice(db: Session, db_payment: models.OrderPayment):
+    
+    db_order = db.query(models.Order).filter(models.Order.order_id == db_payment.order_id).first()
+    
+    return schemas.Invoice(
+            order_id = db_order.order_id,
+            user_id = db_payment.paid_by,
+            type_id = db_order.essay.type_id,
+            level_id = db_order.essay.essay_type.level_id,
+            option_list = [int(item) for item in db_order.option_list.split("-")],
+            total_price = db_order.total_price,
+            payment_type = 'CREDIT_CARD',
+            payment_status = db_payment.paid_status,
+            payment_message = db_payment.payment_message,
+            payment_date = db_payment.created_at 
+        )
+    
 def get_topic(db_essay:models.Essay, db:Session):
     db_essay_info = db_essay.essay_info
     if not db_essay_info:
-        num_error, spelling_errors = spelling.spellCheck(db_essay.content)
+        num_error, spelling_errors = spelling.spellCheckAdvance(db_essay.content)
         data = json.dumps(spelling_errors)
-        topic_predicted = "SCIENE & TECH" 
+        keywords = "keyword-from-essay"
         db_essay_info = models.EssayInfo(
             essay_id = db_essay.essay_id,
-            predicted_topic = topic_predicted,
+            keywords = keywords,
             num_errors = num_error,
             spelling_errors = data
         )
@@ -62,8 +127,11 @@ def get_time_left(db, db_order: models.Order):
         current_time_left =  db_order.deadline - current_time + timedelta(hours=1)
         if current_time_left.days >= 0 :
             time_left = current_time_left.days*24 + (current_time_left.seconds // 3600)
-    if (time_left == 0 and db_order.status_id in [1,2]) or (current_time - db_order.sent_date >  timedelta(minutes=30) and (db_order.status_id == 1)):
+    if (time_left == 0 and db_order.status_id not in [0,3,4]) or (current_time - db_order.sent_date >  timedelta(minutes=30) and (db_order.status_id == 1)):
         db_order.status_id = 4
+        if db_order.teacher_id != None:
+            db_teacher_status = db.query(models.TeacherStatus).filter(db_order.teacher_id == models.TeacherStatus.teacher_id).first()
+            change_current_scoring_essay(db, db_teacher_status, increase=False)
         db.commit()
         db.refresh(db_order)
     return time_left 
@@ -74,7 +142,7 @@ def get_order_response(db_order: models.Order, db: Session):
     if db_order.deadline:
         deadline = db_order.deadline.strftime("%m/%d/%Y, %H:%M:%S")
     db_essay_info = get_topic(db_essay, db)
-    print(db_essay_info.predicted_topic)
+    time_left = get_time_left(db, db_order)
     return schemas.OrderResponse(
             status_id = db_order.status_id,
             order_id = db_order.order_id,
@@ -93,8 +161,45 @@ def get_order_response(db_order: models.Order, db: Session):
             total_price = db_order.total_price,
             is_disabled = db_order.is_disabled,
             deadline = deadline,
-            time_left = get_time_left(db, db_order),
-            topic_name = db_essay_info.predicted_topic
+            time_left = time_left,
+            keywords = db_essay_info.keywords.split("-")
+        )
+    
+def get_suggested_order_response(db_order: models.Order, db: Session, db_teacher_status: models.TeacherStatus):
+    db_essay = db_order.essay
+    deadline = None 
+    if db_order.deadline:
+        deadline = db_order.deadline.strftime("%m/%d/%Y, %H:%M:%S")
+    db_essay_info = get_topic(db_essay, db)
+    time_left = get_time_left(db, db_order)
+    isSuggested = False 
+    if db_teacher_status.active_essays > 0.8*global_var.maximum_essays:
+        if time_left > 48:
+            isSuggested = True 
+    else:
+        if time_left < 48:
+            isSuggested = True 
+    return schemas.SuggestedOrderResponse(
+            status_id = db_order.status_id,
+            order_id = db_order.order_id,
+            student_id = db_order.student_id,
+            teacher_id = db_order.teacher_id,
+            sent_date = db_order.sent_date.strftime("%m/%d/%Y, %H:%M:%S"),
+            updated_date = db_order.updated_date.strftime("%m/%d/%Y, %H:%M:%S"),
+            updated_by = db_order.updated_by,
+            essay = schemas.EssayResponse(
+                essay_id = db_essay.essay_id,
+                title = db_essay.title,
+                content = db_essay.content,
+                type_id = db_essay.type_id
+            ),
+            option_list = [int(item) for item in db_order.option_list.split("-")],
+            total_price = db_order.total_price,
+            is_disabled = db_order.is_disabled,
+            deadline = deadline,
+            time_left = time_left,
+            keywords = db_essay_info.keywords.split("-"),
+            isSuggested = isSuggested 
         )
 
 @router.get("/status",
@@ -198,7 +303,7 @@ async def get_all_orders(current_account: schemas.Account = Depends(get_current_
     return order_list_response
 
 @router.get("/orders/waiting", 
-         response_model=schemas.OrderListResponse,
+         response_model=schemas.SuggestedOrderListResponse,
          description='''
          For Teacher/Admin Account.
          Get all the orders from the students if they are not taken by anyone.
@@ -213,18 +318,16 @@ async def get_all_waiting_orders(current_account: schemas.Account = Depends(get_
     db_teacher_status = db.query(models.TeacherStatus).filter(models.TeacherStatus.teacher_id == current_account.user_id).first()
     
     order_list = []
-    print("get waiting order")
     for db_order in db_orders:
         if db_order.status_id != 1 or db_order.is_disabled or convert_type_to_level(db, db_order.essay.type_id) != db_teacher_status.level_id :
             continue
-        order_list.append(get_order_response(db_order, db))
+        order_list.append(get_suggested_order_response(db_order, db, db_teacher_status))
     totalCount = len(order_list)
 
-    order_list_response = schemas.OrderListResponse(
+    order_list_response = schemas.SuggestedOrderListResponse(
         status = "success",
         totalCount = totalCount,
         data = order_list 
-        
     )
     return order_list_response
 
@@ -308,17 +411,15 @@ async def get_order_by_id(order_id:int,
           description='''
           For Student/Admin account.
           Create a new order.
+          400: Wrong Status ID
+          405: Teachers are not available 
           ''')
 async def create_order(new_order: schemas.OrderInDB,
-                       status_id: int, 
                        current_account: schemas.Account = Depends(get_current_account),
                        db: Session = Depends(get_db)):
     if not current_account.role_id in [0,1]:
         raise  HTTPException(status_code=403, detail="Permission Not Found with role id =" + str(current_account.role_id) )
-    
-    if status_id not in [0,1]:
-        raise HTTPException(status_code=400, detail="Wrong status id!")
-    
+
     sent_date = datetime.today()
     updated_date = sent_date
     updated_by = current_account.user_id
@@ -329,15 +430,13 @@ async def create_order(new_order: schemas.OrderInDB,
     
     if not db_type:
         raise HTTPException(status_code=400, detail="Type ID not found") 
-    if status_id == 1:
-        if not if_any_teacher_left(level_id=convert_type_to_level(db, new_order.essay.type_id)):
-            raise HTTPException(status_code=408, detail="All Teachers are busy")
-    
+
     db_essay = models.Essay(
             title=new_order.essay.title,
             content=new_order.essay.content,
             type_id=new_order.essay.type_id,
-            
+            created_at = sent_date,
+            updated_at = updated_date
     )
     db.add(db_essay)
     db.commit()
@@ -349,25 +448,23 @@ async def create_order(new_order: schemas.OrderInDB,
         total_price += db_optionlist[option_id].option_price
         if db_optionlist[option_id].option_type == 1:
             deadline_hour = int(db_optionlist[option_id].option_name)
+            
     total_price += db_type.type_price
     
     #Set deadline 
-    if status_id == 0:
-        deadline = None 
-    else: 
-        deadline = datetime.today() + timedelta(hours=deadline_hour)
+    
         
     db_order = models.Order(
-        student_id = current_account.user_id,
-        status_id = status_id,
+        student_id = student_id,
+        status_id = 0,
         sent_date = sent_date,
         updated_date = sent_date,
-        updated_by = current_account.user_id,
+        updated_by = updated_by,
         essay_id = db_essay.essay_id,
         option_list = '-'.join(str(item) for item in new_order.option_list),
         total_price = total_price,
         is_disabled = False,
-        deadline = deadline 
+        deadline = None  
     )
     db.add(db_order)
     db.commit()
@@ -376,14 +473,67 @@ async def create_order(new_order: schemas.OrderInDB,
 
     return get_order_response(db_order, db)
 
+@router.post("/orders/payment/{order_id}",
+             description='''
+          For Student/Admin account.
+          Create a new order.
+          405: Payment Service unavailable when payment type != CREDIT_CARD
+          405: Teachers are not available 
+          404: Order not found
+          404: No Credit Card found 
+          406: Not Enough Credit
+          Return INVOICE 
+          ''')
+async def pay_order(order_id: int, 
+                    payment_type: Optional[str] = 'CREDIT_CARD',
+                    current_account: schemas.Account = Depends(get_current_account),
+                    db: Session = Depends(get_db)):
+    if payment_type != 'CREDIT_CARD':
+        raise HTTPException(status_code=405, detail="payment service is unavailable!")
+
+    db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
+    
+    if not db_order or db_order.is_disabled:
+        raise HTTPException(status_code=404, detail="order not found!")
+    
+    if not if_any_teacher_left(level_id=convert_type_to_level(db, db_order.essay.type_id)):
+        raise HTTPException(status_code=405, detail="All Teachers are busy")
+    
+    db_user_credit = db.query(models.UserCredit).\
+                        filter(models.UserCredit.user_id == current_account.user_id).\
+                            first()
+    db_bank_user = db.query(models.FakeBank).\
+                        filter(models.FakeBank.user_id == current_account.user_id).\
+                            first()
+                            
+    if db_bank_user.balance < db_order.total_price:
+        return {
+            "status": False,
+            "message": "Not Enough Money"
+        }
+        
+    db_payment = await process_payment(db, db_order, current_account.user_id)
+    
+    return {
+        "status": True,
+        "invoice": convert_payment_to_invoice(db, db_payment)
+    }
+    
+    
+    
+
+        
+
+
 @router.put("/orders/saved/{order_id}",
          response_model=schemas.OrderResponse,
          description='''
          For student/admin account 
          Get the specific information of a saved order created by student.
+         405: Teachers are not available 
          ''')
 async def update_order(order_id: int,
-                       updated_order: schemas.OrderUpdate,
+                       updated_order: schemas.OrderInDB,
                        current_account: schemas.Account = Depends(get_current_account),
                        db: Session = Depends(get_db)):
     
@@ -397,21 +547,9 @@ async def update_order(order_id: int,
     if current_account.role_id == 1 and current_account.user_id != db_order.student_id:
         raise HTTPException(status_code = 403, detail="This order doesn't belong to you!")
     
-    if current_account.role_id == 1 and db_order.status_id != 0:
-        raise HTTPException(status_code = 403, detail="You can not change the order!")
 
-    db_status_list = db.query(models.Status).all()
-    if updated_order.status_id not in [db_status.status_id for db_status in db_status_list]:
-        raise HTTPException(status_code = 400)
-    
     updated_date = datetime.today()
-    
-    if updated_order.status_id == 1:
-        if not if_any_teacher_left(level_id=convert_type_to_level(db, updated_order.essay.type_id)):
-            raise HTTPException(status_code=408, detail="All Teachers are busy")
-    
-    
-    db_order.status_id = updated_order.status_id 
+
     db_order.updated_by = current_account.user_id 
     db_order.updated_date = updated_date
     db_order.essay.title = updated_order.essay.title 
@@ -420,24 +558,12 @@ async def update_order(order_id: int,
     db_order.option_list = '-'.join(str(item) for item in updated_order.option_list)
     
     total_price = 0
-    deadline = 0
     for option_id in updated_order.option_list:
         total_price += db_optionlist[option_id].option_price
-        for db_option in db_optionlist:
-            if db_option.option_id == option_id:
-                if db_option.option_type == 1:
-                    deadline_hour = int(db_option.option_name) 
     total_price += db_type.type_price 
-    time_left = 0
+    
     #Set deadline 
-    if updated_order.status_id == 0:
-        deadline = None 
-    else: 
-        print("update_order")
-        deadline = datetime.today() + timedelta(hours=deadline_hour)
-        
     db_order.total_price = total_price
-    db_order.deadline = deadline
 
     
     db.commit()
@@ -725,3 +851,49 @@ async def get_teacher_rating(user_id: int,
         rating_response['average_rating'] = sum(rating_list)/len(rating_list)
         return rating_response 
 
+
+@router.get("/invoices/orders/{order_id}",
+            response_model = schemas.Invoice,
+            description='''
+            Only for student / admin 
+            403: Forbidden Request 
+            404: No invoice found
+            ''')
+async def get_order_invoices(order_id: int,
+                            current_account: schemas.Account = Depends(get_current_account),
+                            db: Session = Depends(get_db)):
+    db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
+    
+    
+    if current_account.role_id == 2: 
+        raise HTTPException(status_code=403)
+    
+    if current_account.role_id != 0 and db_order.student_id != current_account.user_id:
+        raise HTTPException(status_code=403)
+    
+    db_payment = db.query(models.OrderPayment).filter(models.OrderPayment.order_id == order_id).first()
+    
+    if not db_payment:
+        raise HTTPException(status_code=404)
+
+    return convert_payment_to_invoice(db, db_payment)
+
+
+@router.get("/invoices/me",
+            response_model = schemas.InvoiceList)
+async def get_user_invoices(current_account: schemas.Account = Depends(get_current_account),
+                            db: Session = Depends(get_db)):
+    
+    if current_account.role_id != 1: 
+        raise HTTPException(status_code=403)
+    
+    db_payment_list = db.query(models.OrderPayment).filter(models.OrderPayment.paid_by == current_account.user_id).all()
+    
+    invoice_list = list()
+    for db_payment in db_payment_list:
+        invoice_list.append(convert_payment_to_invoice(db, db_payment))
+        
+    return schemas.InvoiceList(
+        totalCount = len(invoice_list),
+        invoices = invoice_list
+    )

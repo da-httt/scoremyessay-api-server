@@ -1,3 +1,5 @@
+from enum import auto
+from sqlalchemy.sql.sqltypes import DATETIME
 from db import Base
 from sqlalchemy import Boolean, LargeBinary, Column, ForeignKey, Float, Integer, String, Date, DateTime
 from sqlalchemy.orm import relationship
@@ -57,13 +59,17 @@ class User(Base):
     phone_number = Column(String)
     job_id = Column(Integer, ForeignKey("jobs.job_id"))
     date_of_birth = Column(Date)
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
+    lastTimeActive = Column(DateTime)
 
     gender = relationship("Gender", back_populates="user")
     job = relationship("Job", back_populates="user")
     account = relationship("Account", back_populates="user")
     avatar = relationship("Avatar", back_populates="user")
     teacher_status = relationship("TeacherStatus", back_populates="user")
-
+    user_credit = relationship("UserCredit", back_populates="user")
+    order_payment = relationship("OrderPayment", back_populates="user")
 
 class Avatar(Base):
     __tablename__ = "avatars"
@@ -108,6 +114,9 @@ class Essay(Base):
     title = Column(String)
     content = Column(String)
     type_id = Column(Integer, ForeignKey("types.type_id"))
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
+    isPublic = Column(Boolean)
 
     order = relationship("Order", back_populates="essay")
     essay_comment = relationship("EssayComment", back_populates="essay")
@@ -173,6 +182,7 @@ class Order(Base):
     essay = relationship("Essay", back_populates="order")
     rating = relationship("Rating", back_populates="order")
     order_image = relationship("OrderImage", back_populates="order")
+    order_payment = relationship("OrderPayment", back_populates="order")
 
 
 class OrderImage(Base):
@@ -264,7 +274,7 @@ class EssayInfo(Base):
 
     info_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     essay_id = Column(Integer, ForeignKey("essays.essay_id"))
-    predicted_topic = Column(String)
+    keywords = Column(String)
     num_errors = Column(Integer)
     spelling_errors = Column(String)
 
@@ -280,6 +290,48 @@ class TeacherStatus(Base):
     teacher_id = Column(Integer, ForeignKey("users.user_id"), unique=True)
     level_id = Column(Integer)
     active_essays = Column(Integer)
-    lastTimeActive = Column(DateTime)
     
     user = relationship("User", back_populates="teacher_status")
+    
+
+# class Payment 
+
+class UserCredit(Base):
+    __tablename__ = "user_credits"
+    
+    _id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.user_id"), unique=True)
+    provider = Column(String)
+    account_no = Column(String, unique=True)
+    expiry_date = Column(Date)
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
+    
+    user = relationship("User", back_populates="user_credit")
+    
+class OrderPayment(Base):
+    __tablename__ = "order_payments"
+    
+    _id = Column(Integer, primary_key=True, autoincrement=True)
+    order_id = Column(Integer, ForeignKey("orders.order_id"))
+    total_price = Column(Float)
+    payment_type = Column(String)
+    paid_by = Column(Integer, ForeignKey("users.user_id"))
+    paid_status = Column(String)
+    payment_message = Column(String)
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
+    
+    order = relationship("Order", back_populates="order_payment")
+    user = relationship("User", back_populates="order_payment")
+    
+
+class FakeBank(Base):
+    __tablename__ = "fake_bank"
+    _id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.user_id"), unique=True)
+    account_no = Column(String, ForeignKey("user_credits.account_no"), unique=True)
+    balance = Column(Float)
+    
+    
+    

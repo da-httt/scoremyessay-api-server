@@ -54,15 +54,7 @@ def change_total(level_id:int, increase=False):
         else:
             global_var.total_level1 -= 1
     
-def update_last_active(db: Session, db_teacher_status: models.TeacherStatus):
-    current_time = datetime.today()
-    try:
-        db_teacher_status.lastTimeActive = current_time
-        db.commit()
-        db.refresh(db_teacher_status)
-        return db_teacher_status, convert_db_to_schemas(db_teacher_status)
-    except: 
-        raise HTTPException(status_code=500, detail="Can not read teacher status")
+
     
 def if_level_qualified(db: Session, db_user: models.User, db_essay: models.Essay):
     try:
@@ -106,7 +98,6 @@ def change_current_scoring_essay(db: Session, db_teacher_status: models.TeacherS
             db_teacher_status.active_essays -= 1
         db.commit()
         db.refresh(db_teacher_status)
-        update_last_active(db, db_teacher_status)
         return db_teacher_status, convert_db_to_schemas(db_teacher_status)
     except:
         raise HTTPException(status_code=500, detail="Can not change teacher current active essay.")
@@ -131,7 +122,6 @@ async def create_teacher_status(db: Session, teacher_id:int, level_id:int = 0):
         db.add(db_teacher_status)
         db.commit()
         db.refresh(db_teacher_status)
-        update_last_active(db, db_teacher_status)
         return db_teacher_status, convert_db_to_schemas(db_teacher_status)
     
     else:
@@ -142,7 +132,6 @@ def convert_db_to_schemas(db_teacher_status: models.TeacherStatus):
             teacher_id = db_teacher_status.teacher_id, 
             level_id = db_teacher_status.level_id,
             active_essays = db_teacher_status.active_essays,
-            lastTimeActive = db_teacher_status.lastTimeActive
         )
     
 
@@ -163,7 +152,6 @@ async def get_current_teacher_status(current_account: schemas.Account = Depends(
     if not db_teacher_status:
         db_teacher_status= await create_teacher_status(db, current_account.user_id, level_id=0)
     teacher_status = convert_db_to_schemas(db_teacher_status)
-    update_last_active(db, db_teacher_status)
     return teacher_status
 
 @router.get("/teacher_status/isanyfree")
