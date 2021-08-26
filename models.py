@@ -1,4 +1,5 @@
 from enum import auto
+from os import pathconf_names
 from sqlalchemy.sql.sqltypes import DATETIME
 from db import Base
 from sqlalchemy import Boolean, LargeBinary, Column, ForeignKey, Float, Integer, String, Date, DateTime
@@ -330,8 +331,22 @@ class FakeBank(Base):
     __tablename__ = "fake_bank"
     _id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.user_id"), unique=True)
-    account_no = Column(String, ForeignKey("user_credits.account_no"), unique=True)
     balance = Column(Float)
     
     
-    
+class TeacherForm(Base):
+    __tablename__ ="teacher_forms"
+    _id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String)
+    gender_id = Column(Integer)
+    email = Column(String, unique=True)
+    address = Column(String)
+    job_id = Column(Integer)
+    phone_number = Column(String)
+    date_of_birth = Column(Date)
+    level_id = Column(Integer)
+    avatar = Column(String)
+    cover_letter = Column(String)
+    isPassed = Column(Integer)
+    submission_date = Column(DateTime)
+    process_date = Column(DateTime)

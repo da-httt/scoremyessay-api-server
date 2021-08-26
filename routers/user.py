@@ -24,15 +24,9 @@ def get_fake_bank_user(db: Session, user_id: int ,  db_credit_card: Session):
     if not db_bank_user:
         db_bank_user = models.FakeBank(
             user_id = user_id,
-            account_no = db_credit_card.account_no,
             balance = default_balance
         )
         db.add(db_bank_user)
-        db.commit()
-        db.refresh(db_bank_user)
-        
-    if db_bank_user.account_no != db_credit_card.account_no:
-        db_bank_user.account_no = db_credit_card.account_no
         db.commit()
         db.refresh(db_bank_user)
         
@@ -55,7 +49,6 @@ def reset_bank_balance(db: Session, db_user: Session,  db_credit_card: Session):
     if not db_bank_user:
         db_bank_user = models.FakeBank(
             user_id = db_user.user_id,
-            account_no = db_credit_card.account_no,
             balance = default_balance
         )
         db.add(db_bank_user)

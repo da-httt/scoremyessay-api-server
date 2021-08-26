@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from datetime import datetime, timedelta
 from routers.teacher_promo import *
+from routers.nlp import extract_keywords 
 import schemas 
 import models 
 from typing import Optional, List
@@ -68,6 +69,7 @@ async def process_payment(db: Session, db_order: models.Order, user_id: int):
     db.commit()
     db.refresh(db_payment)
     
+    db_essay_info = await create_essay_info(db_order.essay, db)
     return db_payment 
 
 def convert_payment_to_invoice(db: Session, db_payment: models.OrderPayment):
@@ -87,24 +89,29 @@ def convert_payment_to_invoice(db: Session, db_payment: models.OrderPayment):
             payment_date = db_payment.created_at 
         )
     
-def get_topic(db_essay:models.Essay, db:Session):
-    db_essay_info = db_essay.essay_info
-    if not db_essay_info:
-        num_error, spelling_errors = spelling.spellCheckAdvance(db_essay.content)
-        data = json.dumps(spelling_errors)
-        keywords = "keyword-from-essay"
-        db_essay_info = models.EssayInfo(
-            essay_id = db_essay.essay_id,
-            keywords = keywords,
-            num_errors = num_error,
-            spelling_errors = data
-        )
-        db.add(db_essay_info)
-        db.commit()
-        db.refresh(db_essay_info)
-    else:
-        return db_essay_info[0]
+async def create_essay_info(db_essay:models.Essay, db:Session):
+    num_error, spelling_errors = spelling.spellCheckAdvance(db_essay.content)
+    data = json.dumps(spelling_errors)
+    list = await extract_keywords(db_essay.title)
+    print("keywords extracted: ",list)
+    keywords = '-'.join(list)
+    db_essay_info = models.EssayInfo(
+        essay_id = db_essay.essay_id,
+        keywords = keywords,
+        num_errors = num_error,
+        spelling_errors = data
+    )
+    db.add(db_essay_info)
+    db.commit()
+    db.refresh(db_essay_info)
     return db_essay_info
+    
+    
+def  get_topic(db_essay:models.Essay, db:Session):
+    db_essay_info = db_essay.essay_info
+    if  db_essay_info == []:
+        return None
+    return db_essay_info[0]
 
 def convert_type_to_level(db, type_id: int):
     db_type = db.query(models.EssayType).filter(models.EssayType.type_id == type_id).first()
@@ -130,7 +137,9 @@ def get_time_left(db, db_order: models.Order):
     if (time_left == 0 and db_order.status_id not in [0,3,4]) or (current_time - db_order.sent_date >  timedelta(minutes=30) and (db_order.status_id == 1)):
         db_order.status_id = 4
         if db_order.teacher_id != None:
+            
             db_teacher_status = db.query(models.TeacherStatus).filter(db_order.teacher_id == models.TeacherStatus.teacher_id).first()
+            print("check teacher status: ", db_teacher_status.teacher_id)
             change_current_scoring_essay(db, db_teacher_status, increase=False)
         db.commit()
         db.refresh(db_order)
@@ -141,7 +150,12 @@ def get_order_response(db_order: models.Order, db: Session):
     deadline = None 
     if db_order.deadline:
         deadline = db_order.deadline.strftime("%m/%d/%Y, %H:%M:%S")
+    keywords = []
     db_essay_info = get_topic(db_essay, db)
+    if not db_essay_info:
+        keywords = ["keyword","not","found"]
+    else:
+        keywords = db_essay_info.keywords.split("-")
     time_left = get_time_left(db, db_order)
     return schemas.OrderResponse(
             status_id = db_order.status_id,
@@ -162,7 +176,7 @@ def get_order_response(db_order: models.Order, db: Session):
             is_disabled = db_order.is_disabled,
             deadline = deadline,
             time_left = time_left,
-            keywords = db_essay_info.keywords.split("-")
+            keywords = keywords
         )
     
 def get_suggested_order_response(db_order: models.Order, db: Session, db_teacher_status: models.TeacherStatus):
@@ -319,7 +333,7 @@ async def get_all_waiting_orders(current_account: schemas.Account = Depends(get_
     
     order_list = []
     for db_order in db_orders:
-        if db_order.status_id != 1 or db_order.is_disabled or convert_type_to_level(db, db_order.essay.type_id) != db_teacher_status.level_id :
+        if db_order.status_id != 1 or db_order.is_disabled or convert_type_to_level(db, db_order.essay.type_id) > db_teacher_status.level_id :
             continue
         order_list.append(get_suggested_order_response(db_order, db, db_teacher_status))
     totalCount = len(order_list)
@@ -351,7 +365,7 @@ async def get_waiting_order_by_id(order_id:int,
     if current_account.role_id == 1:
             raise HTTPException(status_code = 403)
 
-    return get_order_response(db_order, db)
+    return  get_order_response(db_order, db)
 
 
 @router.get("/orders/saved", 
@@ -498,6 +512,9 @@ async def pay_order(order_id: int,
     
     if not if_any_teacher_left(level_id=convert_type_to_level(db, db_order.essay.type_id)):
         raise HTTPException(status_code=405, detail="All Teachers are busy")
+    
+    if db_order.status_id != 0:
+        raise HTTPException(status_code=403, detail="Order already paid")
     
     db_user_credit = db.query(models.UserCredit).\
                         filter(models.UserCredit.user_id == current_account.user_id).\
@@ -802,9 +819,21 @@ async def update_order_rating(order_id: int,
         raise HTTPException(status_code=403)
 
     db_order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
+    db_rating = db.query(models.Rating).filter(models.Rating.order_id==order_id).first()
+    
     if db_order.status_id != 3:
         raise HTTPException(status_code=409, detail="Order not done yet!")
     else:
+        if not db_rating:
+            db_rating = models.Rating(
+                order_id = order_id,
+                stars = rating_in_db.stars,
+                comment = rating_in_db.comment
+                )
+            db.add(db_rating)
+            db.commit()
+            db.refresh(db_rating)
+            
         db_rating.stars = rating_in_db.stars
         db_rating.comment = rating_in_db.comment
         db.commit()

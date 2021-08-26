@@ -12,16 +12,41 @@ from typing import Optional, List
 from modules import spelling
 from modules import paragraph
 import json
+from modules.yake_model.YAKE import YAKE
+from nltk.corpus import stopwords
 
 router = APIRouter(
     tags=["AI Model"],
     responses={404: {"description": "Not found"}},
 )
 
+window = 2
+use_stems = False # use stems instead of words for weighting
+stoplist = stopwords.words('english')
+threshold = 0.8
 
-@router.post("/predict_topic")
+"""@router.post("/predict_topic")
 async def predict_essay_topic(paragraph: str):
     return {}  # predictor.predict(paragraph)
+"""
+
+async def extract_keywords(text):
+    extractor = YAKE()
+    extractor.load_document(input=text, language='en',normalization=None)
+    extractor.candidate_selection(n=1, stoplist=stoplist)
+    extractor.candidate_weighting(window=window,
+                            stoplist=stoplist,
+                            use_stems=use_stems)
+    keyphrases = extractor.get_n_best(n=3, threshold=threshold)
+    keyphrases = [k[0] for k in keyphrases]
+    if keyphrases == []:
+        keyphrases = ["keywords","not","found"]
+    return keyphrases
+
+
+@router.post("/extract_keywords")
+async def extract_keywords_from_text(paragraph: str):
+    return {"keywords list": extract_keywords(paragraph)}  
 
 
 @router.get("/spelling_errors/{order_id}",

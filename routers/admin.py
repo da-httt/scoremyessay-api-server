@@ -9,6 +9,8 @@ import schemas
 import models 
 from typing import Optional, List
 import json 
+from routers.teacher_promo import *
+
 router = APIRouter(
     tags=["Admin"],
     responses={404: {"description": "Not found"}},
@@ -404,16 +406,28 @@ async def delete_option(option_id:int,
     else: 
         raise HTTPException(status_code=403, detail="This option can not be deleted!")
     
-def get_topic(db_essay:models.Essay, db:Session):
+def  get_topic(db_essay:models.Essay, db:Session):
     db_essay_info = db_essay.essay_info
+    if  db_essay_info == []:
+        return None
     return db_essay_info[0]
 
-def get_time_left(db_order: models.Order):
+def get_time_left(db, db_order: models.Order):
     time_left = 0
+    current_time = datetime.today()
     if db_order.status_id != 0:
-        current_time_left =  db_order.deadline - datetime.today() + timedelta(hours=1)
+        current_time_left =  db_order.deadline - current_time + timedelta(hours=1)
         if current_time_left.days >= 0 :
             time_left = current_time_left.days*24 + (current_time_left.seconds // 3600)
+    if (time_left == 0 and db_order.status_id not in [0,3,4]) or (current_time - db_order.sent_date >  timedelta(minutes=30) and (db_order.status_id == 1)):
+        db_order.status_id = 4
+        if db_order.teacher_id != None:
+            
+            db_teacher_status = db.query(models.TeacherStatus).filter(db_order.teacher_id == models.TeacherStatus.teacher_id).first()
+            print("check teacher status: ", db_teacher_status.teacher_id)
+            change_current_scoring_essay(db, db_teacher_status, increase=False)
+        db.commit()
+        db.refresh(db_order)
     return time_left 
 
 def get_order_response(db_order: models.Order, db: Session):
@@ -421,7 +435,13 @@ def get_order_response(db_order: models.Order, db: Session):
     deadline = None 
     if db_order.deadline:
         deadline = db_order.deadline.strftime("%m/%d/%Y, %H:%M:%S")
+    keywords = []
     db_essay_info = get_topic(db_essay, db)
+    if not db_essay_info:
+        keywords = ["keyword","not","found"]
+    else:
+        keywords = db_essay_info.keywords.split("-")
+    time_left = get_time_left(db, db_order)
     return schemas.OrderResponse(
             status_id = db_order.status_id,
             order_id = db_order.order_id,
@@ -440,8 +460,9 @@ def get_order_response(db_order: models.Order, db: Session):
             total_price = db_order.total_price,
             is_disabled = db_order.is_disabled,
             deadline = deadline,
-            time_left = get_time_left(db_order),
-            topic_name = db_essay_info.predicted_topic
+            time_left = time_left,
+            keywords = keywords
+            
         )
 
 

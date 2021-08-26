@@ -160,7 +160,7 @@ class OrderResponse(BaseModel):
     is_disabled: bool
     deadline: Optional[str] = None 
     time_left: Optional[int] = 0
-    keywords: List[str]
+    keywords: Optional[List[str]]
 
 class SuggestedOrderResponse(OrderResponse):
     isSuggested: bool 
@@ -363,7 +363,9 @@ class OptionInDB(BaseModel):
 class EmailSchema(BaseModel):
    email: List[EmailStr]
    
-class TeacherForm(BaseModel):
+   
+#Teacher Sign up Form 
+class TeacherFormInDB(BaseModel):
     name: str
     gender_id: int
     email: EmailStr 
@@ -375,6 +377,22 @@ class TeacherForm(BaseModel):
     avatar: Optional[str] = None 
     cover_letter: Optional[str] = None 
     
+class TeacherForm(TeacherFormInDB):
+    id: int 
+    isPassed: int = 0 
+    submission_date: datetime 
+    process_date: Optional[datetime] = None  
+    
+
+class ListTeacherForm(BaseModel):
+    status: str
+    totalCount: int 
+    pageCount: Optional[int] = 1
+    currentPage: Optional[int] = 1
+    perPage: Optional[int] = 20 
+    data: List[TeacherForm]
+    
+#Teacher Status 
 class TeacherStatus(BaseModel):
     teacher_id: int 
     level_id: int 
